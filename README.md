@@ -127,9 +127,9 @@ Median decode speed, tokens/s, from the frozen datasets in [`results/`](results/
 
 Reliability: 72/72 cells on the Qwen set; 53/54 on Flash-Next (one honest
 thinking-cap error row). The finding that matters: **Flash-Next is a ~1.7×
-win on MTPLX and OMLX but a wash on MLX-VLM** — model choice alone doesn't
-decide speed; the framework does. Interactive charts: the [benchtest Results Space](https://huggingface.co/spaces/gitmlxbench/benchtest-results)
-(dataset: [gitmlxbench/benchtest-results](https://huggingface.co/datasets/gitmlxbench/benchtest-results)).
+win on MTPLX and OMLX but a wash on MLX-VLM** — model choice alone doesn't decide speed; the framework does.
+Interactive charts: the [benchtest Results Space](https://huggingface.co/spaces/mlxbencher/benchtest-results)
+(dataset: [mlxbencher/benchtest-results](https://huggingface.co/datasets/mlxbencher/benchtest-results)).
 
 **Positioning**: raw-performance Apple-Silicon benchmarks exist ([Anubis OSS](https://github.com/Anubis-ops/anubis),
 [apple-silicon-llm-bench](https://github.com/john-rocky/apple-silicon-llm-bench));
