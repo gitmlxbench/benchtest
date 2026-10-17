@@ -1,0 +1,32 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# --- Runtime-generated (all of these are created by server.py at run time) ---
+# Per-framework harness configs (opencode/goose/pi) — regenerated each run.
+harness-configs/*
+!harness-configs/.gitkeep
+# Saved benchmark runs + their output artifacts.
+runs/
+outputs/
+# Live logs (bench.log + per-framework server logs).
+logs/
+# Scratch dirs for agent harness file artifacts.
+work/
+# The live, machine-specific config (seeded from config.example.json).
+config.json
+
+# --- OS / editor noise ---
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# campaign backups (frozen copies live in results/)
+runs_qwen*/
+campaign.json
+hart/docs/
