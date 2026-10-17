@@ -1,0 +1,1191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Apple Silicon LLM Benchmark</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel2: #1c2129;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --amber: #d29922;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 13px; padding: 16px; max-width: 1280px; margin: 0 auto;
+  }
+  h1 { font-size: 17px; font-weight: 700; margin-bottom: 2px; }
+  .subtitle { color: var(--muted); font-size: 11.5px; margin-bottom: 14px; }
+  .row { display: flex; gap: 12px; align-items: stretch; flex-wrap: wrap; }
+
+  /* Top status strip */
+  .topstrip { display: flex; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+  .ram-card, .fw-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 14px; min-width: 200px; flex: 1;
+  }
+  .ram-card { max-width: 230px; }
+  .card-label { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 6px; }
+  .ram-value { font-size: 24px; font-weight: 700; color: var(--accent); font-family: var(--mono); }
+  .ram-sub { font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+  .fw-name { font-weight: 700; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+  .fw-model { color: var(--muted); font-size: 11px; font-family: var(--mono); margin-top: 3px; word-break: break-all; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  .dot.up { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .dot.down { background: var(--red); }
+  .dot.wait { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+  .fw-port { font-size: 10.5px; color: var(--muted); font-family: var(--mono); }
+
+  .panel {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px; margin-bottom: 14px;
+  }
+  .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin-bottom: 10px; }
+  label { font-size: 11px; color: var(--muted); display: block; margin-bottom: 4px; }
+  select, input[type=number] {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 7px 9px; font-size: 12.5px; width: 100%;
+    font-family: var(--mono);
+  }
+  select:focus, input:focus, textarea:focus { outline: 1px solid var(--accent); }
+
+  .harness-grid { display: flex; gap: 8px; flex-wrap: wrap; }
+  .harness-chip {
+    display: flex; align-items: center; gap: 7px; cursor: pointer;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 13px; user-select: none; font-size: 12.5px;
+  }
+  .harness-chip input { accent-color: var(--accent); }
+  .harness-chip.on { border-color: var(--accent); background: #16233a; }
+
+  .settings-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 10px; }
+
+  #promptBox {
+    width: 100%; min-height: 130px; resize: vertical;
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px; font-family: var(--mono); font-size: 12px; line-height: 1.5;
+  }
+
+  button.primary {
+    background: #238636; color: #fff; border: 1px solid #2ea043; border-radius: 8px;
+    padding: 9px 22px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  button.primary:hover { background: #2ea043; }
+  button.primary:disabled { opacity: .45; cursor: not-allowed; }
+  button.danger { background: #da3633; border-color: #f85149; }
+  button.mini {
+    background: var(--panel2); color: var(--accent); border: 1px solid var(--border);
+    border-radius: 6px; padding: 4px 12px; font-size: 11.5px; cursor: pointer; font-weight: 600;
+  }
+  button.mini:hover { border-color: var(--accent); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; padding: 7px 9px; border-bottom: 1px solid var(--border); }
+  td { padding: 8px 9px; border-bottom: 1px solid #21262d; font-family: var(--mono); font-size: 11.5px; }
+  tr.running td { background: #1a2a1e; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10.5px; font-weight: 600; }
+  .tag.ok { background: #12261e; color: var(--green); }
+  .tag.err { background: #2d1416; color: var(--red); }
+  .tag.run { background: #241d0d; color: var(--amber); }
+  .qa { font-weight: 700; }
+  .cell-link { cursor: pointer; }
+  .cell-link:hover .tag { outline: 1px solid var(--accent); }
+  .cell-link .tag { text-decoration: underline dotted; text-underline-offset: 3px; }
+  .qa.good { color: var(--green); }
+  .qa.mid { color: var(--amber); }
+  .qa.bad { color: var(--red); }
+
+  #activity {
+    background: #0a0e14; border: 1px solid var(--border); border-radius: 8px;
+    height: 420px; overflow-y: auto; padding: 10px;
+    font-family: var(--mono); font-size: 11px; line-height: 1.75;
+  }
+  #activity .t { color: #6e7681; margin-right: 8px; }
+  #activity .fw { color: var(--accent); font-weight: 700; }
+  #activity .harn { color: #db61a2; }
+  #activity .ok { color: var(--green); }
+  #activity .err { color: var(--red); }
+
+  /* chart */
+  .chart-tabs { display: flex; gap: 6px; margin-bottom: 10px; align-items: center; }
+  .ctab {
+    background: var(--panel2); color: var(--muted); border: 1px solid var(--border);
+    border-radius: 6px; padding: 4px 14px; font-size: 11px; font-weight: 700; cursor: pointer;
+  }
+  .ctab.on { color: #fff; border-color: var(--accent); background: #16233a; }
+  .chart-note { font-size: 10px; color: var(--muted); margin-left: auto; }
+  #chart { width: 100%; display: block; background: #0a0e14; border: 1px solid var(--border); border-radius: 8px; }
+
+  .stat-bar { display: flex; gap: 18px; margin-bottom: 10px; flex-wrap: wrap; }
+  .stat b { font-family: var(--mono); font-size: 15px; color: var(--accent); }
+  .stat span { color: var(--muted); font-size: 10.5px; }
+  .controls { display: flex; gap: 10px; align-items: center; margin-top: 12px; }
+  .spacer { flex: 1; }
+  #runStatus { font-size: 11.5px; color: var(--amber); }
+</style>
+</head>
+<body>
+
+<h1>Apple Silicon LLM Benchmark</h1>
+<div class="subtitle">Local framework &amp; harness comparison &middot; <span id="fwSubtitle">…</span></div>
+
+<div class="chart-tabs" style="margin-bottom:14px;">
+  <button class="ctab on" id="tab-dash" onclick="showTab('dash')">Dashboard</button>
+  <button class="ctab" id="tab-compare" onclick="showTab('compare')">📊 Benchmark Summary</button>
+  <button class="ctab" id="tab-history" onclick="showTab('history')">🕘 Previous Results</button>
+</div>
+
+<div id="page-dash">
+
+<!-- ===== TOP STRIP : RAM + FRAMEWORK STATUS (cards rendered from /api/frameworks) ===== -->
+<div class="topstrip">
+  <div class="ram-card">
+    <div class="card-label" title="Physical memory − memory used (Activity Monitor semantics). Cached files are not counted as used — they are reclaimable on demand.">Available Free RAM</div>
+    <div class="ram-value" id="freeRam">-- GB</div>
+    <div class="ram-sub" id="ramSub">of -- GB total</div>
+  </div>
+  <div id="fwCards" style="display:contents"></div>
+</div>
+
+<div class="row">
+  <!-- ===== LEFT : CONFIG ===== -->
+  <div style="flex: 1.15; min-width: 380px; display: flex; flex-direction: column;">
+    <div class="panel">
+      <h2>Models</h2>
+      <div id="machineLine" style="font-size:12px;font-weight:600;margin-bottom:8px">scanning…</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px;line-height:1.5">
+        Point each framework at a model folder, pick a model in its dropdown
+        (selecting a model = using that framework — leave
+        <i>— off —</i> to skip it), press <b>Validate</b> to confirm it loads,
+        then run.</div>
+      <div id="fwModelRows"></div>
+      <div id="modelSetInfo" style="margin-top:8px;font-size:11px;color:var(--muted);line-height:1.6"></div>
+      <div id="campaignBanner" style="margin-top:8px"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Harnesses
+        <span style="float:right;font-weight:400;text-transform:none;letter-spacing:0">
+          <button class="mini" onclick="toggleGrid('#harnessGrid', true)">All</button>
+          <button class="mini" onclick="toggleGrid('#harnessGrid', false)">None</button>
+        </span></h2>
+      <div class="harness-grid" id="harnessGrid"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Task &amp; Model Settings</h2>
+      <label>Tasks <span style="font-weight:400;color:var(--muted)">(tick one, some, or all — Run Benchmark runs them in order)</span></label>
+      <div class="harness-grid" id="taskGrid"></div>
+      <div id="reasoningNote" style="margin-top:6px;font-size:11px;color:var(--muted)"></div>
+      <div class="settings-grid">
+        <div><label>Temperature</label><input type="number" id="temp" value="0.7" step="0.1" min="0" max="2"></div>
+        <div><label>Max tokens (agents)</label><input type="number" id="maxTok" value="65536" step="256" min="64"></div>
+        <div><label title="Every cell (one framework × harness × task) is stopped at this wall-clock cap; its partial artifact is kept and the cell is recorded as a timeout error. Applies to runs started from the dashboard; campaigns use the cell_timeout_s config default">Max cell run time (min)</label><input type="number" id="cellMin" value="120" step="5" min="5" max="360"></div>
+        <div><label>Top P</label><input type="number" id="topP" value="0.95" step="0.05" min="0" max="1"></div>
+      </div>
+    </div>
+
+    <div class="panel" style="flex: 1; display: flex; flex-direction: column;">
+      <h2>Prompt <span style="font-weight:400;color:var(--muted)">(editable when ✏️ Custom is ticked; named tasks run their own prompt)</span></h2>
+      <textarea id="promptBox" spellcheck="false" style="flex: 1;"></textarea>
+      <div class="controls">
+        <button class="primary" id="runBtn" onclick="startRun()">▶ Run Benchmark</button>
+        <button class="primary danger" id="stopBtn" onclick="stopRun()" disabled>■ Stop</button>
+        <span class="spacer"></span>
+        <span id="runStatus">idle</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== RIGHT : ACTIVITY + CHART ===== -->
+  <div style="flex: 1; min-width: 360px; display: flex; flex-direction: column;">
+    <div class="panel">
+      <h2>Live Harness Activity
+        <span style="float:right;font-weight:400;text-transform:none;letter-spacing:0">
+          <button class="mini" onclick="expandActivity()">⤢ Expand</button></span>
+      </h2>
+      <div id="activity"></div>
+    </div>
+    <div class="panel">
+      <h2>Last Run Comparison
+        <span style="float:right;font-weight:400;text-transform:none;letter-spacing:0">
+          <button class="mini" onclick="expandChart()">⤢ Expand</button></span>
+      </h2>
+      <div class="chart-tabs">
+        <button class="ctab on" data-m="tps" onclick="setMetric('tps')">TPS</button>
+        <button class="ctab" data-m="tgs" onclick="setMetric('tgs')">TGS</button>
+        <button class="ctab" data-m="pp" onclick="setMetric('pp')">PP</button>
+        <span class="chart-note" id="chartNote"></span>
+      </div>
+      <canvas id="chart" height="210"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ===== RESULTS ===== -->
+<div class="panel">
+  <h2>Results</h2>
+  <div class="stat-bar">
+    <div class="stat"><b id="stTotal">0</b> <span>TESTS</span></div>
+    <div class="stat"><b id="stPass">0</b> <span>PASSED</span></div>
+    <div class="stat"><b id="stFail">0</b> <span>FAILED</span></div>
+    <div class="stat"><b id="stTps">--</b> <span>AVG TOK/S</span></div>
+    <div class="stat"><b id="stBest">--</b> <span>BEST FRAMEWORK</span></div>
+    <div class="stat"><b id="stUsable">--</b> <span>ARTIFACTS</span></div>
+    <div class="stat"><b id="stWinner">--</b> <span>WINNING COMBO</span></div>
+    <span class="spacer"></span>
+    <button class="mini" onclick="exportCsv()">⬇ Export CSV</button>
+  </div>
+  <div style="overflow-x:auto;">
+  <table>
+    <thead>
+      <tr>
+        <th>#</th><th>Framework</th><th>Model</th><th>Harness</th><th>Task</th>
+        <th title="Prompt processing — prefill tok/s (server-side where the framework provides it; client-side for raw)">PP tok/s</th>
+        <th title="Token generation — decode tok/s (server-side where the framework provides it; client-side for raw)">TGS tok/s</th>
+        <th title="Overall throughput — completion tokens / total wall time">TPS</th>
+        <th>Run time (s)</th><th>Iter</th><th>Tokens</th><th title="Reliability QA — deterministic checks on the artifact (delivered, substantial, complete, self-test result, untruncated). Full breakdown in the cell detail.">QA</th><th>Status</th><th>Artifacts</th>
+      </tr>
+    </thead>
+    <tbody id="resultsBody">
+      <tr><td colspan="13" style="color:var(--muted);text-align:center;padding:22px;">No results yet — tick tasks &amp; harnesses and hit Run Benchmark.</td></tr>
+    </tbody>
+  </table>
+  </div>
+</div>
+
+</div><!-- /page-dash -->
+
+<!-- ===== PREVIOUS RESULTS PAGE ===== -->
+<div id="page-history" style="display:none">
+  <div class="panel">
+    <h2>Previous Results — every saved run (runs/*.json) <span id="histCount" style="font-weight:400;color:var(--muted)"></span></h2>
+    <div id="histList"></div>
+  </div>
+</div>
+
+<!-- ===== BENCHMARK SUMMARY PAGE ===== -->
+<div id="page-compare" style="display:none">
+  <div class="panel">
+    <h2>Benchmark Summary</h2>
+    <div id="cmpSummary"></div>
+  </div>
+</div>
+
+<!-- ===== EXPAND MODAL ===== -->
+<div id="modal" style="display:none;position:fixed;inset:0;background:rgba(5,8,12,.92);z-index:50;padding:24px;" onclick="if(event.target===this)closeModal()">
+  <div style="background:var(--panel);border:1px solid var(--border);border-radius:12px;max-width:1200px;margin:0 auto;height:100%;display:flex;flex-direction:column;padding:16px;">
+    <div style="display:flex;align-items:center;margin-bottom:10px;">
+      <h2 id="modalTitle" style="margin:0;flex:1"></h2>
+      <button class="mini" onclick="closeModal()">✕ Close</button>
+    </div>
+    <div id="modalBody" style="flex:1;overflow:auto;"></div>
+  </div>
+</div>
+
+<script>
+let TASKS = [];
+let FRAMEWORKS = {};
+let HARNESS_LABELS = {};
+let state = { running: false, framework_status: {} };
+let results = [];
+let _histRows = [];   // row objects from the Previous Results tab (showRowDetail reads these)
+let poller = null;
+const FW_PALETTE = ['#58a6ff', '#db61a2', '#3fb950', '#e3b341', '#bc8cff', '#f85149', '#39c5cf', '#ffa657'];
+let FW_COLORS = {};
+
+const $ = id => document.getElementById(id);
+
+async function api(path, opts) {
+  const r = await fetch(path, opts ? { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(opts) } : undefined);
+  return r.json();
+}
+
+/* ---- task checklist: tick the tasks, Run Benchmark runs them in order ---- */
+let REASONING = { short: 'low', long: 'low' };
+function tickedTasks() {
+  return [...document.querySelectorAll('#taskGrid input:checked')].map(i => i.value);
+}
+function updateRunBtn() {
+  const n = tickedTasks().length;
+  $('runBtn').textContent = n ? `▶ Run ${n} task${n > 1 ? 's' : ''}` : '▶ Run Benchmark';
+}
+function updatePromptBox() {
+  const ticked = tickedTasks();
+  const box = $('promptBox');
+  if (ticked.includes('__custom__')) {
+    box.readOnly = false;
+    box.style.opacity = 1;
+    if (!box.value.trim()) box.value = CUSTOM_PROMPT_TEMPLATE;
+  } else {
+    const t = TASKS.find(x => x.id === ticked[0]);
+    box.value = t ? t.prompt : '';
+    box.readOnly = true;                       // named tasks run their canonical prompt
+    box.style.opacity = 0.6;
+  }
+}
+function updateReasoningNote() {
+  const ticked = tickedTasks();
+  const t = TASKS.find(x => x.id === ticked.find(id => id !== '__custom__'));
+  if (!t) { $('reasoningNote').textContent = ticked.includes('__custom__')
+    ? 'Custom prompt — your settings, not requirement-scored' : 'Tick at least one task.'; return; }
+  const lvl = REASONING[t && t.long ? 'long' : 'short'] || (t && t.long ? 'medium' : 'low');
+  let note = `Reasoning level: ${lvl} — ${t && t.long ? 'LONG task' : 'standard task'} (framework server starts with this level)`;
+  const FIX = { codereview: 'review-sample.py' };
+  if (FIX[t.id]) note += ` · fixture ${FIX[t.id]} inlined for that task`;
+  $('reasoningNote').textContent = note;
+}
+async function loadTasks() {
+  TASKS = await api('/api/tasks');
+  try { REASONING = await api('/api/reasoning'); } catch (e) {}
+  const grid = $('taskGrid');
+  grid.innerHTML = TASKS.map(t =>
+    `<label class="harness-chip"><input type="checkbox" value="${t.id}" checked> ${esc(t.name)}${t.long ? ' · LONG' : ''}</label>`).join('')
+    + `<label class="harness-chip"><input type="checkbox" value="__custom__"> ✏️ Custom prompt…</label>`;
+  grid.querySelectorAll('input').forEach(i => i.addEventListener('change', () => {
+    i.closest('.harness-chip').classList.toggle('on', i.checked);
+    updatePromptBox(); updateReasoningNote(); updateRunBtn(); saveSettings();
+  }));
+  updatePromptBox(); updateReasoningNote(); updateRunBtn();
+}
+
+// template for the Custom prompt task — documents what the model can and
+// cannot reach so community prompts don't assume the wrong environment
+const CUSTOM_PROMPT_TEMPLATE = `# Custom task — replace everything in this box with your own prompt.
+
+# Before you write it, what the model can and cannot do here:
+# - The model runs locally and starts with NO memory. It only knows what is
+#   inside this prompt, plus files or URLs you explicitly point it to.
+# - raw / raw+ harnesses: text in → text out. No file access, no internet.
+#   If you select them, this prompt must be fully self-contained.
+# - pi / opencode / hart: local agents with shell + file access on
+#   this Mac, each in its own scratch working directory. They CAN read a
+#   local folder or fetch a URL if you give the exact absolute path
+#   (e.g. /Users/you/projects/my-repo) or URL. They cannot use your browser
+#   session, credentials, or anything behind a login.
+# - The model has a training cutoff and does not know this benchmark exists
+#   unless you describe it.
+# - Deliverables: files an agent writes into its working directory are kept
+#   and shown under Output — open them to judge the result.
+# - The dashboard reports success/failure and speed; the artifact is the
+#   review surface.
+
+# --- Write your prompt below this line ---
+`;
+
+/* ---- frameworks (top strip cards + selection grid + model picker) ----
+   Everything is rendered from /api/frameworks so adding a framework to
+   config.json shows up here with no UI change. */
+async function loadFrameworks() {
+  const all = await api('/api/frameworks');
+  FRAMEWORKS = all;
+  Object.keys(all).forEach((fw, i) => { FW_COLORS[fw] = FW_PALETTE[i % FW_PALETTE.length]; });
+  $('fwSubtitle').textContent = Object.values(all).map(f => f.name).join(' · ');
+
+  // top strip cards
+  $('fwCards').innerHTML = Object.entries(all).map(([fw, f]) => `
+    <div class="fw-card" id="fwcard-${fw}" style="cursor:pointer" onclick="showFramework('${fw}')">
+      <div class="fw-name"><span class="dot down" id="dot-${fw}"></span>${esc(f.name)} <span class="fw-port">port ${f.port}</span></div>
+      <div class="fw-model" id="fwmodel-${fw}" title="${esc(f.model_display || f.model)}">${esc(f.model_display || f.model)}</div>
+    </div>`).join('');
+
+  // model-set checkbox sync (campaign tab; active_set may be a
+  // merged selection like "flash-next+flash-next-oq5e")
+  const modelSet = (Object.values(all)[0] || {}).model_set || '';
+  const activeSets = new Set(String(modelSet).split('+'));
+  document.querySelectorAll('.modelPick').forEach(c => {
+    c.checked = activeSets.has(c.value);
+    c.closest('.harness-chip').classList.toggle('on', c.checked);
+  });
+  renderSetInfoLine();
+}
+
+function toggleGrid(gridSel, on) {
+  document.querySelectorAll(gridSel + ' input').forEach(i => {
+    if (i.disabled) return;
+    i.checked = on;
+    i.closest('.harness-chip').classList.toggle('on', i.checked);
+  });
+  saveSettings();
+}
+
+/* ---- harnesses (rendered from /api/harnesses) ---- */
+async function loadHarnesses() {
+  HARNESS_LABELS = await api('/api/harnesses');
+  const grid = $('harnessGrid');
+  const prior = [...grid.querySelectorAll('input:checked')].map(i => i.value);
+  grid.innerHTML = Object.entries(HARNESS_LABELS).map(([id, label]) => {
+    const checked = prior.length ? prior.includes(id) : true;
+    const info = id === 'rawplus'
+      ? ` <span title="What is raw+?" style="cursor:help" onclick="event.preventDefault();event.stopPropagation();explainRawPlus()">ⓘ</span>` : '';
+    return `<label class="harness-chip ${checked ? 'on' : ''}"><input type="checkbox" value="${id}" ${checked ? 'checked' : ''}> ${esc(label)}${info}</label>`;
+  }).join('');
+  grid.querySelectorAll('input').forEach(i =>
+    i.addEventListener('change', () => { i.closest('.harness-chip').classList.toggle('on', i.checked); saveSettings(); }));
+}
+
+
+
+/* ---- cell detail modal (why did this cell fail?) ---- */
+function showCellDetail(i) { showRowDetail(results[i]); }
+
+// Any row object (live result, history row, campaign cell) gets the same
+// per-cell detail treatment: specific error, missing features, QA notes.
+function showRowDetail(r) {
+  if (!r) return;
+  const row = (k, v) => v ? `<div><b>${k}:</b> ${esc(String(v))}</div>` : '';
+  const why = [];
+  if (r.status === 'error') why.push('The cell errored before producing a result.');
+  if (r.error) why.push('Error: ' + r.error);
+  if (r.truncated) why.push('The reply hit the max_tokens cap and was cut off mid-generation.');
+  if (!why.length && r.status === 'done') why.push('The cell completed — open the artifact to judge the result.');
+  openModal(`Cell detail — ${r.framework || '?'} / ${r.harness || '?'}`,
+    `<div style="font-size:12.5px;line-height:1.9">
+      ${row('Task', r.task)}${row('Model', r.model)}${row('Status', r.status)}
+      ${row('Tokens', r.tokens)}${row('Run time', r.latency != null ? r.latency + 's' : null)}
+      ${why.length ? `<div style="margin-top:8px"><b>Why this result:</b><ul style="margin:4px 0 0 18px;padding:0">${why.map(w => `<li>${esc(w)}</li>`).join('')}</ul></div>` : ''}
+      ${r.output_url ? `<div style="margin-top:8px"><a href="${esc(r.output_url)}" target="_blank" rel="noopener">Open the artifact</a></div>` : ''}
+    </div>`);
+}
+
+/* ---- comparison tab ---- */
+async function renderComparison() {
+  const runs = await api('/api/runs_history');   // refetch every visit
+  const box = document.getElementById('cmpSummary');
+  const cells = [];
+  for (const r of runs) {
+    for (const c of (r.rows || [])) {
+      if (c.status === 'done' && c.tps != null && FRAMEWORKS[c.framework])
+        cells.push(c);
+    }
+  }
+  if (!cells.length) {
+    box.innerHTML = '<p style="color:var(--muted)">No completed runs yet — the summary fills in as the campaign produces cells.</p>';
+    return;
+  }
+  cells.sort((a, b) => b.tps - a.tps);
+  // a fair speed table compares like with like: all rows share the model of
+  // the fastest cell overall
+  const cohort = cells[0].model || '(unknown model)';
+  const top = cells.filter(c => c.model === cohort).slice(0, 5);
+  const val = (v, d = 1) => v == null ? '–' : Number(v).toFixed(d);
+  const row = (c, rank, badge) =>
+    `<tr${rank <= 3 ? ' style="background:var(--panel2)"' : ''}>
+      <td>${badge || rank}</td>
+      <td style="color:var(--accent);font-weight:700">${esc((c.framework || '').toUpperCase())}</td>
+      <td>${esc(c.harness)}</td><td>${esc(c.task)}</td>
+      <td style="color:var(--green);font-weight:700">${c.tps.toFixed(1)}</td>
+      <td>${val(c.server_tgs ?? c.tgs)}</td>
+      <td>${val(c.server_pp ?? c.pp)}</td>
+      <td>${c.latency == null ? '–' : c.latency.toFixed(1)}</td>
+      <td>${c.iterations ?? '–'}</td>
+    </tr>`;
+  const medals = ['🥇 1', '🥈 2', '🥉 3'];
+  box.innerHTML = `
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+      ${top.slice(0, 3).map((c, i) => `
+        <div style="flex:1;min-width:220px;border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--panel2)">
+          <div style="font-size:20px">${medals[i]} — ${esc((c.framework || '').toUpperCase())}</div>
+          <div style="font-size:12px;color:var(--muted)">${esc(c.harness)} · ${esc(c.task)}</div>
+          <div style="font-size:26px;font-weight:800;color:var(--green)">${c.tps.toFixed(1)} <span style="font-size:12px;font-weight:400">tok/s overall</span></div>
+        </div>`).join('')}
+    </div>
+    <h3 style="margin:6px 0 6px">Top ${top.length} runs — model cohort: <span style="font-family:var(--mono)">${esc(cohort)}</span></h3>
+    <div style="overflow-x:auto">
+    <table><thead><tr><th>#</th><th>Framework</th><th>Harness</th><th>Task</th>
+      <th>TPS tok/s</th><th>TGS tok/s</th><th>PP tok/s</th><th>Run time (s)</th><th>Iterations</th></tr></thead>
+    <tbody>${top.map((c, i) => row(c, i + 1, medals[i])).join('')}</tbody></table></div>
+    <p style="font-size:11px;color:var(--muted);margin-top:8px">
+      Ranked by overall TPS; all rows share the same model for a fair comparison.
+      TGS/PP prefer server-measured values when captured. Iterations = model calls
+      the harness needed.</p>`;
+}
+
+/* ---- campaign (Run All) ---- */
+/* ---- model sets: pure checkboxes — tick any combination and every action
+   honors it. A run merges the ticked sets per framework (one model per
+   framework; same-framework overlaps are rejected with a clear message).
+   Run All benchmarks each ticked set in turn. ---- */
+function _fwPhrase(fws) {
+  const n = (fws || []).length;
+  if (!n) return 'no frameworks';
+  if (n === 1) return `${fws[0]} only`;
+  return n >= 4 ? 'all frameworks' : fws.join(' + ');
+}
+
+
+/* ---- per-framework model dropdowns: discovered models, fit-badged,
+   invalid (wont-fit / incompatible source) options disabled. Changing one
+   applies an ad-hoc selection immediately; Run All validates the sets. ---- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/* ---- MODEL-FIRST selection: scan installed models, pick one, frameworks
+   auto-filter to the stores that can serve it ---- */
+
+
+
+
+function renderCampaign(c) {
+  const el = $('campaignBanner');
+  if (!c || (!c.active && !['paused', 'failed'].includes(c.status))) { el.innerHTML = ''; return; }
+  const pct = c.plan_total ? Math.min(100, Math.round(100 * (c.index || 0) / c.plan_total)) : 0;
+  let html = `<div style="background:#0a0e14;border:1px solid var(--border);border-radius:8px;padding:10px">` +
+    `<b>Campaign ${esc(c.status || '')}</b> · run ${(c.index || 0) + 1}/${c.plan_total}` +
+    (c.current ? ` · ${esc(c.current)}` : '') +
+    `<div style="background:#161b22;border-radius:4px;height:8px;margin:6px 0">` +
+    `<div style="width:${pct}%;height:8px;background:var(--accent);border-radius:4px"></div></div>`;
+  if (c.status === 'running') {
+    html += `<button class="mini" onclick="api('/api/stop', {})">⏸ Pause (stops current run)</button>`;
+  } else {
+    html += `<span style="color:var(--amber)">paused at run ${(c.index || 0) + 1}/${c.plan_total}</span> ` +
+      `<button class="mini" onclick="api('/api/campaign', {action:'resume'}).then(()=>location.reload())">▶ Resume</button> ` +
+      `<button class="mini" onclick="api('/api/campaign', {action:'cancel'}).then(()=>renderCampaign({}))">✕ Cancel</button>` +
+      (c.error ? `<div style="color:var(--red);margin-top:4px">${esc(c.error)}</div>` : '');
+  }
+  el.innerHTML = html + `</div>`;
+}
+
+/* ---- ram + framework dots ---- */
+function fmtGB(b) { return (b / 1073741824).toFixed(1) + ' GB'; }
+
+function renderStatus(s) {
+  if (s.ram) {
+    $('freeRam').textContent = fmtGB(s.ram.free);
+    $('ramSub').textContent = `of ${fmtGB(s.ram.total)} total`;
+  }
+  for (const fw of Object.keys(FRAMEWORKS)) {
+    const st = (s.framework_status || {})[fw] || 'down';
+    const dot = $('dot-' + fw);
+    if (!dot) continue;
+    dot.className = 'dot ' + (st === 'up' ? 'up' : st === 'starting' ? 'wait' : 'down');
+    dot.title = st;
+    const modelEl = $('fwmodel-' + fw);
+    if (modelEl && FRAMEWORKS[fw]) modelEl.textContent = FRAMEWORKS[fw].model;
+  }
+  state = s;
+  $('runBtn').disabled = s.running;
+  $('stopBtn').disabled = !s.running;
+  if (s.running) {
+    let txt = s.current_step || 'running…';
+    if (s.run_started) {
+      const el = Math.max(0, Math.floor(Date.now() / 1000 - s.run_started));
+      txt += `  ·  ${String(Math.floor(el / 60)).padStart(2, '0')}:${String(el % 60).padStart(2, '0')}`;
+    }
+    $('runStatus').textContent = txt;
+  } else $('runStatus').textContent = 'idle';
+}
+
+function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+/* ---- results table ---- */
+function renderResults() {
+  const tb = $('resultsBody');
+  if (!results.length) return;
+  tb.innerHTML = results.map((r, i) => {
+    const ppv = r.server_pp != null ? r.server_pp.toFixed(0) : (r.pp != null ? r.pp.toFixed(0) : null);
+    const tgsv = r.server_tgs != null ? r.server_tgs.toFixed(1) : (r.tgs != null ? r.tgs.toFixed(1) : null);
+    return `
+    <tr class="${r.status === 'running' ? 'running' : ''}">
+      <td>${i + 1}</td>
+      <td style="color:var(--accent);font-weight:700">${esc(r.framework.toUpperCase())}</td>
+      <td style="color:var(--muted)">${esc(r.model.length > 28 ? r.model.slice(0, 26) + '…' : r.model)}</td>
+      <td style="color:#db61a2">${esc(r.harness)}</td>
+      <td>${esc(r.task)}</td>
+      <td title="${r.server_pp ? 'server-measured' : (r.pp ? 'client-measured' : 'not available for this cell')}">${ppv === null ? (r.status === 'done' ? '–' : '…') : ppv}</td>
+      <td title="ctx fill ${r.ctx_fill_pct ?? '–'}% · ~${r.est_gbps ?? '–'} GB/s est${r.server_cached_tokens != null ? ' · ' + r.server_cached_tokens + ' cached tok' : ''}">${tgsv === null ? (r.status === 'done' ? '–' : '…') : tgsv}</td>
+      <td style="color:var(--green);font-weight:700">${r.tps == null ? (r.status === 'done' ? '–' : '…') : r.tps.toFixed(1)}</td>
+      <td>${r.latency == null ? '…' : r.latency.toFixed(2)}</td>
+      <td>${r.iterations == null ? '–' : r.iterations}</td>
+      <td>${r.tokens == null ? '…' : r.tokens}</td>
+      <td title="${esc(r.qa_notes || '')}">${r.qa_score == null ? '–' : '<b style="color:' + (r.qa_score >= 80 ? 'var(--green)' : r.qa_score >= 50 ? 'var(--amber)' : 'var(--red)') + '">' + r.qa_score + '</b>'}</td>
+      <td><a class="cell-link" onclick="showCellDetail(${i})" title="${r.error ? esc(r.error) : 'Click for detail'}"><span class="tag ${r.status}" title="${r.truncated ? 'Response hit the max_tokens cap and was cut off — output may be incomplete' : ''}">${r.status}${r.truncated ? ' ⚠' : ''}</span></a></td>
+      <td>${r.output_url ? `<button class="mini" onclick="window.open('${r.output_url}','_blank')">Open ▸</button>` : (r.status === 'done' ? '<span style="color:var(--muted)">text</span>' : '')}</td>
+    </tr>`;}).join('');
+
+  const done = results.filter(r => r.status !== 'running');
+  $('stTotal').textContent = done.length;
+  $('stPass').textContent = done.filter(r => r.status === 'done').length;
+  $('stFail').textContent = done.filter(r => r.status === 'error').length;
+  const tpsVals = done.filter(r => r.tps).map(r => r.tps);
+  $('stTps').textContent = tpsVals.length ? (tpsVals.reduce((a, b) => a + b, 0) / tpsVals.length).toFixed(1) : '--';
+  // best framework by avg tok/s
+  const byFw = {};
+  done.filter(r => r.tps).forEach(r => (byFw[r.framework] = byFw[r.framework] || []).push(r.tps));
+  const best = Object.entries(byFw).map(([f, v]) => [f, v.reduce((a, b) => a + b, 0) / v.length]).sort((a, b) => b[1] - a[1])[0];
+  $('stBest').textContent = best ? `${best[0].toUpperCase()} (${best[1].toFixed(1)})` : '--';
+  const withArtifacts = done.filter(r => r.output_url);
+  $('stUsable').textContent = withArtifacts.length ? `${withArtifacts.length}/${done.length}` : '--';
+  // winning combo: fastest completed cell with an artifact
+  if (withArtifacts.length) {
+    const win = withArtifacts.slice().sort((a, b) =>
+      ((a.latency == null ? 1e9 : a.latency) - (b.latency == null ? 1e9 : b.latency)))[0];
+    $('stWinner').textContent = `${win.framework.toUpperCase()} / ${win.harness}`;
+    $('stWinner').parentElement.title =
+      `${win.latency}s · ${(win.tps || 0).toFixed(1)} tok/s · ${win.task}`;
+  } else {
+    $('stWinner').textContent = '--';
+    $('stWinner').parentElement.title = 'no completed cells with artifacts yet';
+  }
+}
+
+/* ---- comparison chart (last run) ---- */
+let chartMetric = 'tps';
+let lastChartSig = '';
+const METRIC_INFO = {
+  tps: { title: 'Overall throughput — tok/s', unit: 'tok/s' },
+  tgs: { title: 'Token generation (decode) — tok/s', unit: 'tok/s' },
+  pp:  { title: 'Prompt processing (prefill) — tok/s', unit: 'tok/s' },
+};
+const metricOf = (r, m) => r['server_' + m] ?? r[m];
+
+function setMetric(m) {
+  chartMetric = m;
+  document.querySelectorAll('.ctab').forEach(b => b.classList.toggle('on', b.dataset.m === m));
+  drawChart();
+}
+
+function niceMax(v) {
+  if (v <= 0) return 1;
+  const p = Math.pow(10, Math.floor(Math.log10(v)));
+  const n = v / p;
+  return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * p;
+}
+
+function drawChart(canvasId = 'chart', ch = 210) {
+  const canvas = $(canvasId);
+  const dpr = window.devicePixelRatio || 1;
+  const cw = Math.max(canvas.parentElement.clientWidth - 30, 260);
+  canvas.width = cw * dpr; canvas.height = ch * dpr;
+  canvas.style.width = cw + 'px'; canvas.style.height = ch + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cw, ch);
+
+  const mi = METRIC_INFO[chartMetric];
+  const rows = results.filter(r => r.status === 'done' && metricOf(r, chartMetric) != null);
+
+  if (!rows.length) {
+    ctx.fillStyle = '#8b949e'; ctx.font = '11px ui-monospace, Menlo, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('run a benchmark to see the chart', cw / 2, ch / 2);
+    $('chartNote').textContent = mi.title;
+    return;
+  }
+
+  // categories = all harnesses in run order (even if this metric only exists
+  // for some), so lines span the full width on TPS; series = one per framework
+  const cats = [...new Set(results.filter(r => r.status === 'done').map(r => r.harness))];
+  if (!cats.length) cats.push(...rows.map(r => r.harness));
+  const fws = [...new Set(rows.map(r => r.framework))];
+  const series = fws.map(fw => ({
+    fw,
+    vals: cats.map(h => {
+      const m = rows.filter(r => r.framework === fw && r.harness === h);
+      return m.length ? m.reduce((a, r) => a + metricOf(r, chartMetric), 0) / m.length : null;
+    })
+  }));
+
+  const L = 46, R = 12, T = 14, B = 28;
+  const pw = cw - L - R, ph = ch - T - B;
+  const ymax = niceMax(Math.max(...series.flatMap(s => s.vals.filter(v => v != null)), 1));
+
+  // grid + y axis
+  ctx.font = '10px ui-monospace, Menlo, monospace';
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (let i = 0; i <= 4; i++) {
+    const y = T + ph - (ph * i / 4);
+    ctx.strokeStyle = '#21262d'; ctx.beginPath();
+    ctx.moveTo(L, y); ctx.lineTo(cw - R, y); ctx.stroke();
+    ctx.fillStyle = '#6e7681';
+    ctx.fillText((ymax * i / 4) >= 100 ? Math.round(ymax * i / 4) : (ymax * i / 4).toFixed(1), L - 6, y);
+  }
+  // x labels
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = '#8b949e';
+  cats.forEach((h, i) => {
+    const x = L + pw * (cats.length === 1 ? 0.5 : i / (cats.length - 1));
+    ctx.fillText(h.length > 12 ? h.slice(0, 11) + '…' : h, x, ch - B + 6);
+  });
+  // lines
+  series.forEach(s => {
+    ctx.strokeStyle = FW_COLORS[s.fw] || '#e6edf3';
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.lineWidth = 2; ctx.beginPath();
+    let started = false;
+    s.vals.forEach((v, i) => {
+      if (v == null) return;
+      const x = L + pw * (cats.length === 1 ? 0.5 : i / (cats.length - 1));
+      const y = T + ph - (v / ymax) * ph;
+      started ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+      started = true;
+    });
+    ctx.stroke();
+    s.vals.forEach((v, i) => {
+      if (v == null) return;
+      const x = L + pw * (cats.length === 1 ? 0.5 : i / (cats.length - 1));
+      const y = T + ph - (v / ymax) * ph;
+      ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI * 2); ctx.fill();
+      ctx.font = '9px ui-monospace, Menlo, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      ctx.fillText(v.toFixed(1), x, y - 5);
+    });
+  });
+  // legend + averages in the note line
+  $('chartNote').innerHTML = series.map(s => {
+    const vs = s.vals.filter(v => v != null);
+    const avg = vs.length ? (vs.reduce((a, b) => a + b, 0) / vs.length) : 0;
+    return `<span style="color:${FW_COLORS[s.fw] || '#fff'}">■ ${s.fw.toUpperCase()} ${avg.toFixed(1)}</span>`;
+  }).join(' &nbsp;·&nbsp; ') + ` <span style="color:#6e7681">${mi.unit}</span>`;
+}
+
+window.addEventListener('resize', () => { lastChartSig = ''; drawChart(); });
+
+/* ---- live activity feed ---- */
+let lastActivityTs = 0;
+async function pollActivity() {
+  const lines = await api('/api/activity?since=' + lastActivityTs);
+  const box = $('activity');
+  for (const l of lines) {
+    lastActivityTs = l.ts;
+    const div = document.createElement('div');
+    div.innerHTML = `<span class="t">${new Date(l.ts * 1000).toLocaleTimeString()}</span>` +
+      (l.fw ? `<span class="fw">[${esc(l.fw)}]</span> ` : '') +
+      (l.harness ? `<span class="harn">${esc(l.harness)}</span> ` : '') +
+      `<span class="${l.level || ''}">${esc(l.msg)}</span>`;
+    box.appendChild(div);
+  }
+  if (lines.length) box.scrollTop = box.scrollHeight;
+}
+
+async function poll() {
+  try {
+    const s = await api('/api/state');
+    renderStatus(s);
+    results = s.results || [];
+    renderResults();
+    const sig = results.map(r => [r.framework, r.harness, r.status, metricOf(r, chartMetric)]).join('|');
+    if (sig !== lastChartSig) { lastChartSig = sig; drawChart(); }
+    await pollActivity();
+    renderCampaign(s.campaign);
+  } catch (e) { /* server restarting */ }
+}
+
+
+/* ---- actions ---- */
+
+
+
+/* ---- MODEL & FRAMEWORK PICKER: no checkboxes, no radios. One row per
+   framework: a folder input (the tool lists every model it finds in it), a
+   dropdown (selecting a model = using that framework; — off — skips it),
+   and a Validate button that checks servability + RAM fit before a run. ---- */
+
+function fwRowHtml(fw) {
+  const f = FRAMEWORKS[fw] || {};
+  return '<div class="fwPickRow" data-fw="' + esc(fw) + '" style="border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:8px">' +
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
+    '<b style="width:92px;font-size:12px">' + esc(f.name || fw) + '</b>' +
+    '<input class="fwFolder" data-fw="' + esc(fw) + '" spellcheck="false" placeholder="/path/to/model/folder"' +
+    ' style="flex:1;padding:5px 8px;font-size:11px;font-family:monospace">' +
+    '<button class="mini" title="list the models in this folder" onclick="loadFolder(\'' + esc(fw) + '\')">↻ Load</button></div>' +
+    '<div style="display:flex;align-items:center;gap:8px">' +
+    '<span style="width:92px;font-size:11px;color:var(--muted)">Model</span>' +
+    '<select class="fwModelSel" data-fw="' + esc(fw) + '" style="flex:1;padding:6px;font-size:12px" onchange="applySelection()">' +
+    '<option value="">— off —</option></select>' +
+    '<button class="mini" onclick="validateModel(\'' + esc(fw) + '\')">Validate</button></div>' +
+    '<div class="fwVerdict" id="verdict-' + esc(fw) + '" style="font-size:11px;margin-top:5px;color:var(--muted)"></div></div>';
+}
+
+async function initModelPanel() {
+  document.getElementById('fwModelRows').innerHTML =
+    Object.keys(FRAMEWORKS).map(fwRowHtml).join('');
+  try {
+    const m = await api('/api/machine');
+    document.getElementById('machineLine').textContent =
+      (m.chip || 'Mac') + ' \u00b7 ' + m.total_gb + ' GB RAM \u00b7 ~' + m.usable_gb + ' GB usable';
+    const defaults = { omlx: m.hf_cache, mlxvlm: m.hf_cache,
+                       mlxserve: m.hf_cache, vllm: m.hf_cache,
+                       mtplx: m.mtplx_store };
+    Object.keys(FRAMEWORKS).forEach(fw => {
+      const inp = document.querySelector('.fwFolder[data-fw="' + fw + '"]');
+      if (inp && !inp.value && defaults[fw]) inp.value = defaults[fw];
+    });
+  } catch (e) {}
+  await Promise.all(Object.keys(FRAMEWORKS).map(fw => loadFolder(fw, true)));
+  renderSetInfoLine();
+}
+
+async function loadFolder(fw, quiet) {
+  const inp = document.querySelector('.fwFolder[data-fw="' + fw + '"]');
+  const sel = document.querySelector('.fwModelSel[data-fw="' + fw + '"]');
+  const v = document.getElementById('verdict-' + fw);
+  if (v) { v.textContent = ''; v.style.color = 'var(--muted)'; }
+  const folder = ((inp && inp.value) || '').trim();
+  if (!folder) { sel.innerHTML = '<option value="">— off —</option>'; return; }
+  let models = [];
+  try {
+    const d = await api('/api/models/folder?path=' + encodeURIComponent(folder));
+    models = d.models || [];
+    if (d.error) throw new Error(d.error);
+  } catch (e) {
+    sel.innerHTML = '<option value="">— off —</option>';
+    if (!quiet) alert('Folder scan failed: ' + (e.message || e));
+    return;
+  }
+  models.sort((a, b) => (a.size_gb || 0) - (b.size_gb || 0));
+  const f = FRAMEWORKS[fw] || {};
+  const cur = f.model_display || f.model || '';
+  if (cur && f.model_available !== false && !models.some(m => m.id === cur))
+    models.unshift({ id: cur, size_gb: null });
+  sel.innerHTML = '<option value="">— off —</option>' + models.map(m =>
+    '<option value="' + esc(m.id) + '"' + (m.id === cur ? ' selected' : '') + '>' +
+    esc(m.id.split('/').pop()) +
+    (m.size_gb ? '  \u2014 ' + m.size_gb + ' GB' : '') + '</option>').join('');
+  sel.title = models.map(m => m.id + (m.size_gb ? ' (' + m.size_gb + ' GB)' : '')).join('\n');
+}
+
+async function validateModel(fw) {
+  const sel = document.querySelector('.fwModelSel[data-fw="' + fw + '"]');
+  const v = document.getElementById('verdict-' + fw);
+  if (!sel.value) {
+    v.textContent = 'Pick a model first \u2014 the dropdown lists what the folder above contains.';
+    v.style.color = 'var(--muted)';
+    return;
+  }
+  v.textContent = 'validating\u2026'; v.style.color = 'var(--muted)';
+  const d = await api('/api/model/validate', { fw: fw, model: sel.value });
+  if (d.error) {
+    v.textContent = '\u2717 ' + d.error;
+    v.style.color = 'var(--red)';
+    return;
+  }
+  v.textContent = d.message || '';
+  v.style.color = d.verdict === 'fits' ? 'var(--green)'
+                : d.verdict === 'tight' ? 'var(--amber)'
+                : d.verdict === 'unknown' ? 'var(--muted)' : 'var(--red)';
+}
+
+async function applySelection() {
+  const models = {};
+  document.querySelectorAll('.fwModelSel').forEach(s => { models[s.dataset.fw] = s.value || ''; });
+  const res = await api('/api/model_set', { models: models });
+  if (!res.ok) {
+    alert(res.error || 'combination rejected');
+    // revert the dropdowns to the last accepted state
+    document.querySelectorAll('.fwModelSel').forEach(s => {
+      const f = FRAMEWORKS[s.dataset.fw] || {};
+      s.value = (f.model_available === false || !f.model) ? '' : f.model;
+    });
+    return;
+  }
+  for (const fw in res.frameworks) {
+    FRAMEWORKS[fw] = Object.assign({}, FRAMEWORKS[fw], res.frameworks[fw]);
+  }
+  renderSetInfoLine();
+}
+
+function selectedFws() {
+  return [...document.querySelectorAll('.fwModelSel')]
+    .filter(s => s.value).map(s => s.dataset.fw);
+}
+
+function renderSetInfoLine() {
+  // show the DROPDOWN state — that is what Run applies (the server state
+  // can diverge until a run applies it, which misled the selection twice)
+  const lines = [];
+  document.querySelectorAll('.fwModelSel').forEach(s => {
+    const f = FRAMEWORKS[s.dataset.fw] || {};
+    if (s.value) lines.push(esc(f.name || s.dataset.fw) + ': ' + esc(s.value));
+  });
+  document.getElementById('modelSetInfo').innerHTML =
+    lines.length ? lines.join('<br>')
+                 : '<span style="color:var(--red)">no model selected</span>';
+}
+
+async function startRun() {
+  // the ticked task chips + model dropdowns ARE the selection: apply the
+  // picked models, then run the ticked tasks in order against them
+  const task_ids = tickedTasks();
+  if (!task_ids.length) return alert('Tick at least one task.');
+  const picks = {};
+  document.querySelectorAll('.fwModelSel').forEach(s => { if (s.value) picks[s.dataset.fw] = s.value; });
+  const frameworks = Object.keys(picks);
+  if (!frameworks.length) return alert('Select a model in at least one framework dropdown.');
+  const harnesses = [...document.querySelectorAll('#harnessGrid input:checked')].map(i => i.value);
+  if (!harnesses.length) return alert('Select at least one harness.');
+  const res = await api('/api/model_set', { models: picks });
+  if (!res.ok) return alert(res.error || 'model combination rejected');
+  for (const fw in res.frameworks) {
+    FRAMEWORKS[fw] = Object.assign({}, FRAMEWORKS[fw], res.frameworks[fw]);
+  }
+  renderSetInfoLine();
+  const payload = {
+    frameworks,
+    harnesses,
+    task_ids,
+    settings: {
+      temperature: parseFloat($('temp').value),
+      max_tokens: parseInt($('maxTok').value),
+      cell_timeout_s: (parseInt($('cellMin').value) || 120) * 60,
+      top_p: parseFloat($('topP').value)
+    }
+  };
+  if (task_ids.includes('__custom__')) payload.prompt = $('promptBox').value;
+  api('/api/run', payload);
+}
+
+function stopRun() { api('/api/stop', {}); }
+
+function csvq(v) {
+  const s = String(v ?? '');
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function exportCsv() {
+  const head = 'framework,model,harness,task,latency_s,tokens,tps,status\n';
+  const rows = results.filter(r => r.status !== 'running').map(r =>
+    [r.framework, r.model, r.harness, r.task, r.latency, r.tokens, r.tps, r.status].map(csvq).join(',')).join('\n');
+  const blob = new Blob([head + rows], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'benchmark_results.csv';
+  a.click();
+}
+
+/* ---- modal: expand chart / activity / framework info ---- */
+function openModal(title, bodyHtml) {
+  $('modalTitle').textContent = title;
+  $('modalBody').innerHTML = bodyHtml;
+  $('modal').style.display = 'block';
+}
+function closeModal() { $('modal').style.display = 'none'; }
+
+function expandChart() {
+  if (!results.length) return openModal('Comparison chart', '<p style="color:var(--muted)">No results yet.</p>');
+  openModal(`Comparison — ${chartMetric.toUpperCase()} (per framework across harnesses)`,
+    `<canvas id="bigchart" height="520"></canvas>`);
+  drawChart('bigchart', 520);
+}
+
+async function expandActivity() {
+  const lines = await api('/api/activity?since=0');
+  const body = lines.map(l =>
+    `<div style="font-family:var(--mono);font-size:11px;line-height:1.8">` +
+    `<span style="color:#6e7681">${new Date(l.ts * 1000).toLocaleTimeString()}</span> ` +
+    (l.fw ? `<span style="color:var(--accent)">[${esc(l.fw)}]</span> ` : '') +
+    (l.harness ? `<span style="color:#db61a2">${esc(l.harness)}</span> ` : '') +
+    `<span style="color:${l.level === 'err' ? 'var(--red)' : l.level === 'ok' ? 'var(--green)' : 'var(--text)'}">${esc(l.msg)}</span></div>`
+  ).join('');
+  openModal(`Harness activity — full history (${lines.length} events)`,
+    body || '<p style="color:var(--muted)">No activity yet.</p>');
+}
+
+async function showFramework(fw) {
+  const all = await api('/api/frameworks');
+  const f = all[fw];
+  if (!f) return;
+  openModal(`${f.name} — port ${f.port} (${f.status})`,
+    `<div style="font-family:var(--mono);font-size:12px;line-height:1.9">
+      <div><b>Model:</b> ${esc(f.model)}</div>
+      <div><b>Context:</b> ${f.ctx_tokens} tokens · <b>Weights:</b> ~${f.model_gb} GB · <b>Status:</b> ${f.status}</div>
+      <div style="margin-top:10px"><b>Startup command:</b></div>
+      <div style="background:#0a0e14;border:1px solid var(--border);border-radius:8px;padding:12px;margin-top:6px;white-space:pre-wrap;word-break:break-all">${esc(f.start_cmd)} &amp;</div>
+      ${f.notes ? `<div style="margin-top:12px"><b>When parameters apply:</b></div>
+      <div style="color:var(--muted);margin-top:4px;line-height:1.7">${esc(f.notes)}</div>` : ''}
+    </div>`);
+}
+
+function showTab(t) {
+  document.getElementById('page-dash').style.display = t === 'dash' ? '' : 'none';
+  document.getElementById('page-history').style.display = t === 'history' ? '' : 'none';
+  document.getElementById('page-compare').style.display = t === 'compare' ? '' : 'none';
+  document.getElementById('tab-dash').classList.toggle('on', t === 'dash');
+  document.getElementById('tab-history').classList.toggle('on', t === 'history');
+  document.getElementById('tab-compare').classList.toggle('on', t === 'compare');
+  if (t === 'history') loadHistory();
+  if (t === 'compare') renderComparison();
+}
+
+async function loadHistory() {
+  let runs;
+  try {
+    runs = await api('/api/runs_history');
+  } catch (e) {
+    $('histList').innerHTML =
+      '<p style="color:var(--red)">Could not load run history — ' +
+      'hard-refresh the page (Cmd+Shift+R). If it persists, restart the ' +
+      'benchmark backend (the endpoint is new). Details: ' +
+      String(e).slice(0, 120) + '</p>';
+    return;
+  }
+  $('histCount').textContent = `(${runs.length} runs)`;
+  _histRows = [];   // row objects the detail modal reads by index
+  $('histList').innerHTML = runs.map(r => {
+    const done = r.rows.filter(x => x.status === 'done').length;
+    const win = r.rows.filter(x => x.status === 'done' && x.output_url)
+      .sort((a, b) => ((a.latency || 1e9) - (b.latency || 1e9)))[0];
+    const rows = r.rows.map(x => {
+      const idx = _histRows.push(x) - 1;
+      const tip = [x.error, x.truncated ? 'reply hit the max_tokens cap' : '']
+                  .filter(Boolean).join(' — ');
+      return `<tr><td>${esc(x.framework)}</td><td>${esc(x.harness)}</td>
+       <td><a class="cell-link" onclick="showRowDetail(_histRows[${idx}])" title="${esc(tip)}"><span class="tag ${x.status}" >${x.status}${x.truncated ? ' ⚠' : ''}</span></a></td>
+       <td>${x.latency == null ? '–' : x.latency + 's'}</td>
+       <td>${x.iterations ?? '–'}</td>
+       <td>${x.tokens ?? '–'}</td><td>${x.tps ?? '–'}</td>
+       <td title="${esc(x.qa_notes || '')}">${x.qa_score ?? '–'}</td>
+       <td>${x.output_url ? `<a href="${x.output_url}" target="_blank" style="color:var(--accent)">open</a>` : '–'}</td></tr>`;
+    }).join('');
+    return `<details style="margin-bottom:10px">
+      <summary style="cursor:pointer;padding:8px;background:var(--panel2);border:1px solid var(--border);border-radius:8px">
+        <b>${esc(r.task)}</b> · ${new Date((r.ts || 0) * 1000).toLocaleString()}
+        · ${done}/${r.rows.length} done
+        ${win ? `· 🏆 ${esc(win.framework)} / ${esc(win.harness)} (${win.latency}s)` : ''}
+        <button class="mini" data-file="${esc(r.file)}" onclick="deleteRun(this, event)"
+          title="Permanently delete this run — removes its runs/*.json and any output files only it references"
+          style="margin-left:10px">🗑</button>
+      </summary>
+      <div style="margin-top:6px;color:var(--muted);font-size:11px">
+        ${Object.entries(r.frameworks || {}).map(([f, m]) => `${f}: ${esc(m)}`).join(' · ')}
+      </div>
+      <div style="overflow-x:auto;margin-top:6px">
+      <table><thead><tr><th>Framework</th><th>Harness</th><th>Status</th><th>Run time</th><th>Iter</th>
+        <th>Tokens</th><th>TPS</th><th>QA</th><th>Artifacts</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+    </details>`;
+  }).join('') || '<p style="color:var(--muted)">No saved runs yet.</p>';
+}
+
+async function deleteRun(btn, ev) {
+  ev.stopPropagation(); ev.preventDefault();   // keep the <details> from toggling
+  if (!btn.dataset.armed) {
+    btn.dataset.armed = '1';
+    btn.textContent = '✓ delete?';
+    btn.style.color = 'var(--red)';
+    setTimeout(() => {
+      if (btn.isConnected && btn.dataset.armed) {
+        btn.dataset.armed = ''; btn.textContent = '🗑'; btn.style.color = '';
+      }
+    }, 4000);
+    return;
+  }
+  btn.textContent = '…';
+  try {
+    const res = await fetch('/api/runs/' + encodeURIComponent(btn.dataset.file),
+      { method: 'DELETE' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    btn.closest('details').remove();
+    const left = document.querySelectorAll('#histList details').length;
+    $('histCount').textContent = `(${left} runs)`;
+    if (!left) $('histList').innerHTML =
+      '<p style="color:var(--muted)">No saved runs yet.</p>';
+  } catch (e) {
+    btn.textContent = '✗ failed — backend restarted?';
+    setTimeout(() => {
+      if (btn.isConnected) {
+        btn.dataset.armed = ''; btn.textContent = '🗑'; btn.style.color = '';
+      }
+    }, 2500);
+  }
+}
+
+function explainRawPlus() {
+  openModal('raw+ — one-shot with automatic continuation',
+    `<div style="font-size:13px;line-height:1.8;color:var(--text)">
+      <p><b>Why it exists:</b> the model's output already streams token-by-token, but
+      <span style="font-family:var(--mono)">max_tokens</span> is a <i>generation</i> cap — the model is told to stop
+      after 32&nbsp;k output tokens no matter what. On long-horizon tasks (CHIP-8, markdown compiler…) the deliverable
+      is bigger than one call, so plain raw gets cut off mid-file and fails QA.</p>
+      <p><b>What raw+ does:</b> streams the first chunk; if the model hits the cap
+      (<span style="font-family:var(--mono)">finish_reason=length</span>), raw+ re-issues the request with the
+      accumulated tail and a strict "continue exactly at the cut point" instruction, detects and removes the seam
+      overlap the model usually repeats, and keeps appending to the <b>same artifact</b> — a streaming buffer across
+      calls. Repeats up to ${'4'} rounds (4 × 32k total budget) or until the model finishes naturally.</p>
+      <p><b>Honest costs:</b> each round re-sends prompt + output so far (growing prefill — visible in the PP numbers
+      and softened by prefix caches); thinking models may re-think at seams; the ⚠ flag appears only if the
+      <i>total</i> budget is exhausted.</p>
+      <p><b>Why keep both:</b> raw = the one-shot baseline (dies at the cap — a capability datum);
+      raw+ = the streaming-buffer formula; the agent harnesses = chunked tool loops.
+      The three together show exactly where agentic overhead pays for itself.</p>
+    </div>`);
+}
+
+/* ---- settings persistence (localStorage) ---- */
+function saveSettings() {
+  try {
+    localStorage.setItem('benchtest.settings', JSON.stringify({
+      tasks: tickedTasks(),
+      temp: $('temp').value,
+      maxTok: $('maxTok').value,
+      topP: $('topP').value,
+      cellMin: $('cellMin').value,
+      prompt: $('promptBox').value,
+      harnesses: [...document.querySelectorAll('#harnessGrid input:checked')].map(i => i.value),
+    }));
+  } catch (e) { /* private mode etc. — non-fatal */ }
+}
+function loadSettings() {
+  let s;
+  try { s = JSON.parse(localStorage.getItem('benchtest.settings') || 'null'); } catch (e) { s = null; }
+  if (!s) return;
+  if (Array.isArray(s.tasks)) {
+    document.querySelectorAll('#taskGrid input').forEach(i => {
+      i.checked = s.tasks.includes(i.value);
+      i.closest('.harness-chip').classList.toggle('on', i.checked);
+    });
+  }
+  for (const id of ['temp', 'maxTok', 'cellMin', 'topP'])
+    if (s[id] != null) $(id).value = s[id];
+  // one-time migration: 32k caps predate the 64k uniform setting
+  if (s.maxTok === '32768' || s.maxTok === 32768) {
+    $('maxTok').value = '65536'; saveSettings();
+  }
+  if (s.prompt != null) $('promptBox').value = s.prompt;
+  const applyChecks = (sel, list) => {
+    if (!Array.isArray(list)) return;
+    document.querySelectorAll(sel + ' input').forEach(i => {
+      if (i.disabled) return;   // unavailable for the active model set
+      i.checked = list.includes(i.value);
+      i.closest('.harness-chip').classList.toggle('on', i.checked);
+    });
+  };
+  applyChecks('#harnessGrid', s.harnesses);
+}
+
+/* ---- init ---- */
+['temp', 'maxTok', 'cellMin', 'topP'].forEach(id => $(id).addEventListener('change', saveSettings));
+$('promptBox').addEventListener('input', saveSettings);
+
+(async function init() {
+  await loadTasks();
+  await Promise.all([loadFrameworks(), loadHarnesses()]);
+  loadSettings();
+  initModelPanel();
+  setMetric('tps');
+  poll();
+  poller = setInterval(poll, 1200);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,189 @@
+{
+  "host": "0.0.0.0",
+  "port": 7090,
+  "route_via_proxy": false,
+  "pi_thinking": "",
+  "reasoning": {
+    "short": "low",
+    "long": "low"
+  },
+  "hart_path": "./hart/hart.py",
+  "frameworks": {
+    "omlx": {
+      "name": "OMLX",
+      "model_source": "hf",
+      "port": 7001,
+      "model": "mlx-community--Qwen3.8-27B-8bit",
+      "model_gb": 28,
+      "ctx_tokens": 131072,
+      "reasoning_file": "~/.omlx/model_settings.json",
+      "reasoning_key": "reasoning_effort",
+      "start_cmd": [
+        "omlx",
+        "serve",
+        "--port",
+        "7001"
+      ],
+      "notes": "Model, context, max-tokens and reasoning are applied PER MODEL from ~/.omlx/model_settings.json at request time. Reasoning is task-type driven (top-level 'reasoning': low for standard tasks, medium for LONG) \u2014 the benchmark rewrites the model entry's chat_template_kwargs.reasoning_effort before start and restores it after the run. MTP speculative decoding is ON via the embedded mlx-vlm engine."
+    },
+    "mtplx": {
+      "name": "MTPLX",
+      "model_source": "mtplx",
+      "port": 7002,
+      "model": "mtplx-qwen38-27b-optimized-quality",
+      "repo": "Youssofal/Qwen3.8-27B-MTPLX-Optimized-Quality",
+      "model_gb": 28,
+      "ctx_tokens": 131072,
+      "start_cmd": [
+        "mtplx",
+        "serve",
+        "--model",
+        "{repo}",
+        "--context-window",
+        "{ctx}",
+        "--max-tokens",
+        "{max_tokens}",
+        "--stream-stall-deadline-s",
+        "900",
+        "{reasoning}",
+        "--port",
+        "7002"
+      ],
+      "notes": "All parameters are CLI flags applied at server start. --reasoning-effort is task-type driven (top-level 'reasoning': low for standard tasks, medium for LONG) via the {reasoning} placeholder. Models load from ~/.mtplx/models by repo id ({repo}); the served model id is normalized and auto-adopted. Pick a model in the Model panel. Performance note (from mtplx status): the turbo profile's compiled MTP-verify only applies to sequences \u2264 32768 tokens \u2014 LONG-task cells whose context grows past that fall back to eager verification.",
+      "reasoning_flags": {
+        "low": [
+          "--reasoning-effort",
+          "low"
+        ],
+        "medium": [
+          "--reasoning-effort",
+          "medium"
+        ],
+        "high": [
+          "--reasoning-effort",
+          "high"
+        ]
+      },
+      "reasoning_override": "low"
+    },
+    "mlxvlm": {
+      "name": "MLX-VLM",
+      "model_source": "hf",
+      "port": 7003,
+      "model": "Youssofal/Qwen3.8-27B-MTPLX-Optimized-Quality",
+      "draft_model": "mlx-community/Qwen3.8-27B-MTP-8bit",
+      "model_gb": 28,
+      "ctx_tokens": 131072,
+      "notes": "mlx_vlm.server with MTP speculative decoding: the MTP-8bit draft pairs with the Youssofal-Quality weights (identical architecture to the dense 8bit - verified tensor-by-tensor in run 20260926-181100: 6/6 cells, QA 100, 19-38 tok/s). Reasoning maps to --enable-thinking; thinking_budget is hard-blocked by mlx_vlm while the draft is loaded, so no budget flags. No ctx flag \u2014 serves the model's native context (adopted at start). Per-request metrics from its JSON /metrics.",
+      "reasoning_flags": {
+        "low": [],
+        "medium": [
+          "--enable-thinking"
+        ],
+        "high": [
+          "--enable-thinking"
+        ]
+      },
+      "start_cmd": [
+        "python3",
+        "-m",
+        "mlx_vlm.server",
+        "--model",
+        "{model}",
+        "{draft}",
+        "--max-tokens",
+        "{max_tokens}",
+        "{reasoning}",
+        "--port",
+        "7003"
+      ]
+    },
+    "mlxserve": {
+      "name": "MLX-Serve",
+      "model_source": "hf",
+      "port": 7004,
+      "model": "Youssofal/Qwen3.8-27B-MTPLX-Optimized-Quality",
+      "model_gb": 28,
+      "ctx_tokens": 131072,
+      "start_cmd": [
+        "mlx-serve",
+        "--model",
+        "{model_path}",
+        "--serve",
+        "--host",
+        "127.0.0.1",
+        "--metrics",
+        "--port",
+        "7004",
+        "--ctx-size",
+        "{ctx}",
+        "--max-tokens",
+        "{max_tokens}",
+        "{reasoning}"
+      ],
+      "notes": "vLLM-compatible server with the richest metrics surface (Prometheus /metrics). Reasoning is task-type driven (top-level 'reasoning'): {reasoning} expands to --reasoning-budget <n> (1024 low / 4096 medium). PLD speculative decoding is on by default.",
+      "reasoning_flags": {
+        "low": [
+          "--reasoning-budget",
+          "1024"
+        ],
+        "medium": [
+          "--reasoning-budget",
+          "4096"
+        ],
+        "high": [
+          "--reasoning-budget",
+          "16384"
+        ]
+      }
+    },
+    "vllm": {
+      "name": "vLLM",
+      "model_source": "hf",
+      "notes": "vLLM (dev 0.31, vllm-metal) on macOS serves standard HF repos \u2014 NOT MLX builds; Qwen MTP unsupported upstream so far. Reference model: google/gemma-4-31B-it. --enable-auto-tool-choice + --tool-call-parser gemma4 are REQUIRED: pi/opencode send tool_choice=auto and vLLM 400s without them (observed as empty-response/no-output rows).",
+      "port": 7005,
+      "model": "",
+      "model_gb": 0,
+      "ctx_tokens": 131072,
+      "start_cmd": [
+        "vllm",
+        "serve",
+        "{model}",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "7005",
+        "--max-model-len",
+        "{ctx}",
+        "--enable-auto-tool-choice",
+        "--tool-call-parser",
+        "gemma4"
+      ]
+    }
+  },
+  "model_set": "flash-next",
+  "model_sets": {
+    "qwen38-27b": {
+      "label": "Qwen3.8-27B",
+      "group": "Qwen3.8-27B",
+      "ctx_tokens": 131072,
+      "max_tokens": 65536,
+      "models": {
+        "omlx": "Jundot/Qwen3.8-27B-oQ8e-mtp",
+        "mtplx": "Youssofal/Qwen3.8-27B-MTPLX-Optimized-Quality",
+        "mlxvlm": "Youssofal/Qwen3.8-27B-MTPLX-Optimized-Quality",
+        "mlxserve": "Youssofal/Qwen3.8-27B-MTPLX-Optimized-Quality"
+      }
+    },
+    "flash-next": {
+      "label": "Qwen3.8-Flash-Next",
+      "group": "Qwen3.8-Flash-Next",
+      "ctx_tokens": 131072,
+      "max_tokens": 65536,
+      "models": {
+        "mtplx": "Youssofal/Qwen3.8-Flash-Next-MTPLX-Optimized-Speed",
+        "omlx": "mlx-community/Qwen3.8-Flash-Next-4bit-mtp"
+      }
+    }
+  }
+}

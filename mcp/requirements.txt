@@ -1,0 +1,3 @@
+# benchtest MCP server dependency — pinned so a future major SDK
+# release can't silently change the MCPServer API under us
+mcp==2.2.0
