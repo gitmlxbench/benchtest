@@ -159,10 +159,8 @@ cd benchtest
 # 2. Check prerequisites + seed config.json
 ./install.sh
 
-# 3. Edit config.json to match your machine (models, ports, start commands)
-$EDITOR config.json
-
-# 4. Start the server
+# 3. Start the server — no config editing needed on the default path
+#    (config.json is only for custom start commands, ports, or model-set presets)
 python3 server.py            # or: make run
 #    ➜ Open http://localhost:7090
 ```
