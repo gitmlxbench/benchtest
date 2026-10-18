@@ -12,6 +12,8 @@ nothing to `pip install`.
 
 ---
 
+![benchtest dashboard — model picker, task chips, harness grid, live results](assets/benchmark-summary.png)
+
 ## What it measures
 
 For every **framework × harness** cell on a chosen task, benchtest records:
@@ -39,6 +41,131 @@ agent writes next to its HTML (e.g. `app.js`) are inlined into the collected
 artifact so the Artifacts links show what was actually built.
 
 ---
+
+## Headline results (Apple M5 Max, 128 GB)
+
+Median decode speed, tokens/s, from the frozen datasets in [`results/`](results/)
+(3 tasks × up to 4 frameworks × 6 harnesses; agent rows use server-measured TGS):
+
+| Framework | Qwen3.8-27B raw / agent | Flash-Next raw / agent | Flash-Next gain |
+|---|---|---|---|
+| **MTPLX** | 51.9 / 46.6 | **89.4 / 84.9** | **~1.7×** |
+| **OMLX** | 53.0 / 51.0 | **88.8 / 87.6** | **~1.7×** |
+| **MLX-Serve** | 52.2 / 49.6 | *does not fit (needs ~112.5 GB)* | — |
+| **MLX-VLM** | 35.8 / 34.9 | 38.7 / 39.0 | ~none — its runtime doesn't exploit the MTP build |
+
+Reliability: 72/72 cells on the Qwen set; 53/54 on Flash-Next (one honest
+thinking-cap error row). The finding that matters: **Flash-Next is a ~1.7×
+win on MTPLX and OMLX but a wash on MLX-VLM** — model choice alone doesn't
+decide speed; the framework does. Interactive charts: the [benchtest Results Space](https://huggingface.co/spaces/mlxbencher/benchtest-results)
+(dataset: [mlxbencher/benchtest-results](https://huggingface.co/datasets/mlxbencher/benchtest-results)).
+
+**Positioning**: raw-performance Apple-Silicon benchmarks exist ([Anubis OSS](https://github.com/Anubis-ops/anubis),
+[apple-silicon-llm-bench](https://github.com/john-rocky/apple-silicon-llm-bench));
+agent-harness leaderboards exist for cloud APIs. benchtest is the cross:
+**local serving frameworks × real agent harnesses × real build artifacts,
+on one Mac** — the "which framework should serve this model, and does the
+harness change the outcome?" tool.
+
+**The task suite** — deliberately small, each task a different kind of work:
+`tetris` (interactive game logic), `codereview` (find the planted defects in a
+sample module), `markdown` (a CommonMark-subset compiler with spec tests),
+`agentconsole` (chat → tool-calling agent with skills + MCP deploy), plus
+**✏️ Custom prompt** for anything else — its template documents what models can
+and cannot reach in this environment. Every done cell also gets a
+**reliability QA score** (`qa.py`): deterministic artifact checks — delivered,
+substantial, structurally complete, self-test result, untruncated — with the
+breakdown one hover away. The judgment stays human; the score only measures
+whether the delivery is sound.
+
+Then in the browser: pick your frameworks and harnesses, choose a task (or edit the
+prompt), and hit **▶ Run Benchmark**.
+
+> **First run tip:** the *Model per Framework* panel lists every model on your machine
+> (HF cache + MTPLX store) with a live compatibility verdict (**ready / tight /
+> too-large / unknown**) based on your current free RAM. Models a framework can't serve
+> are greyed out (e.g. MTPLX-only models for OMLX/MLX-VLM/MLX-Serve). Pick a model and
+> it's written straight into `config.json`.
+
+---
+
+## Roadmap
+
+**V1 (current release) — the MLX-native frameworks, on purpose.** OMLX,
+MTPLX, MLX-VLM, and MLX-Serve × six harnesses (raw, raw+, pi, opencode,
+aider, hart) on the built-in task suite, with model discovery + RAM-fit
+validation, per-cell metrics, reliability QA, and frozen results for
+Qwen3.8-27B and Flash-Next. vLLM ships wired for standard HF repos with
+a reference model (Gemma) — the one framework where the Qwen MTP builds
+don't run yet.
+
+**V2 — widening the matrix.**
+- **Ollama and llama.cpp (llama-server)** as first-class frameworks
+- **vLLM with the Qwen MTP builds** once upstream vLLM supports them
+  (vote in the Discussions to show demand)
+- **A public cross-chip results set (M1–M5)** built from community runs —
+  see [Contributing results](#contributing-results--run-it-on-your-mac);
+  smaller-RAM machines stay first-class via fit validation
+
+**Future releases.** More agent harnesses as the ecosystem grows, and
+richer aggregate statistics across community submissions.
+
+## Contributing results — run it on your Mac
+
+The published numbers are one machine; yours will differ, and that's the
+point. Run benchtest on your Mac (16 / 32 / 64 / 128 GB — the model
+picker only offers models that fit your RAM), then open a PR against
+[`community-results/`](community-results/) adding your run JSONs under a
+folder named `<github-user>-<machine>` (e.g. `jdoe-m4-16gb/`) with a
+short README (chip, RAM, models, frameworks). Match the manifest format
+in [`results/`](results/). The QA score keeps entries comparable:
+deterministic checks, raw JSON for anyone to re-analyze.
+
+## Shape V2 — vote on what we benchmark next
+
+V2's framework list (llama.cpp, Ollama, LM Studio, vLLM-for-Qwen-MTP) is
+the starting ballot, not the limit. **Voting is open** in the pinned
+**"Vote: shape V2"** GitHub Discussion:
+
+- 🗳️ **Vote by reaction**: each candidate framework / model family /
+  harness is its own comment in the Discussion — add a 👍 to everything
+  you want benchmarked. One reaction per comment = one vote; the tally
+  is the comment's reaction count.
+- ✍️ **Write-ins welcome**: don't see your pick? Add it as a new comment
+  in the right category (framework / model / harness) and others can
+  vote on it too.
+- 📊 **Tallies steer the roadmap**: we pick up the top vote-getters for
+  each V2 milestone, in order, and edit the Roadmap above when a pick
+  moves into development.
+
+Anything with an OpenAI-compatible `/v1` endpoint and a CLI-launchable
+server is eligible; the bar for inclusion is that a community member can
+reproduce the numbers on their own machine.
+
+**Already have one framework (e.g. OMLX) and a model downloaded?**
+You're three commands from a run — no config editing needed on the
+default path: `./install.sh` → `python3 server.py` → open
+`http://localhost:7090`, pick your model in the dropdown, tick tasks,
+Run. (Editing `config.json` is only for custom start commands, ports, or
+model-set presets.)
+
+## Quick start
+
+```bash
+# 1. Get the code
+git clone https://github.com/gitmlxbench/benchtest.git
+cd benchtest
+
+# 2. Check prerequisites + seed config.json
+./install.sh
+
+# 3. Edit config.json to match your machine (models, ports, start commands)
+$EDITOR config.json
+
+# 4. Start the server
+python3 server.py            # or: make run
+#    ➜ Open http://localhost:7090
+```
 
 ## Prerequisites
 
@@ -92,71 +219,6 @@ artifact so the Artifacts links show what was actually built.
   > `~/.mtplx/models` by the `mtplx` CLI itself.
 
 `install.sh` checks all of the above and tells you exactly what's missing.
-
----
-
-## Quick start
-
-```bash
-# 1. Get the code
-git clone https://github.com/gitmlxbench/benchtest.git
-cd benchtest
-
-# 2. Check prerequisites + seed config.json
-./install.sh
-
-# 3. Edit config.json to match your machine (models, ports, start commands)
-$EDITOR config.json
-
-# 4. Start the server
-python3 server.py            # or: make run
-#    ➜ Open http://localhost:7090
-```
-
-## Headline results (Apple M5 Max, 128 GB)
-
-Median decode speed, tokens/s, from the frozen datasets in [`results/`](results/)
-(3 tasks × up to 4 frameworks × 6 harnesses; agent rows use server-measured TGS):
-
-| Framework | Qwen3.8-27B raw / agent | Flash-Next raw / agent | Flash-Next gain |
-|---|---|---|---|
-| **MTPLX** | 51.9 / 46.6 | **89.4 / 84.9** | **~1.7×** |
-| **OMLX** | 53.0 / 51.0 | **88.8 / 87.6** | **~1.7×** |
-| **MLX-Serve** | 52.2 / 49.6 | *does not fit (needs ~112.5 GB)* | — |
-| **MLX-VLM** | 35.8 / 34.9 | 38.7 / 39.0 | ~none — its runtime doesn't exploit the MTP build |
-
-Reliability: 72/72 cells on the Qwen set; 53/54 on Flash-Next (one honest
-thinking-cap error row). The finding that matters: **Flash-Next is a ~1.7×
-win on MTPLX and OMLX but a wash on MLX-VLM** — model choice alone doesn't decide speed; the framework does.
-Interactive charts: the [benchtest Results Space](https://huggingface.co/spaces/mlxbencher/benchtest-results)
-(dataset: [mlxbencher/benchtest-results](https://huggingface.co/datasets/mlxbencher/benchtest-results)).
-
-**Positioning**: raw-performance Apple-Silicon benchmarks exist ([Anubis OSS](https://github.com/Anubis-ops/anubis),
-[apple-silicon-llm-bench](https://github.com/john-rocky/apple-silicon-llm-bench));
-agent-harness leaderboards exist for cloud APIs. benchtest is the cross:
-**local serving frameworks × real agent harnesses × real build artifacts,
-on one Mac** — the "which framework should serve this model, and does the
-harness change the outcome?" tool.
-
-**The task suite** — deliberately small, each task a different kind of work:
-`tetris` (interactive game logic), `codereview` (find the planted defects in a
-sample module), `markdown` (a CommonMark-subset compiler with spec tests),
-`agentconsole` (chat → tool-calling agent with skills + MCP deploy), plus
-**✏️ Custom prompt** for anything else — its template documents what models can
-and cannot reach in this environment. Every done cell also gets a
-**reliability QA score** (`qa.py`): deterministic artifact checks — delivered,
-substantial, structurally complete, self-test result, untruncated — with the
-breakdown one hover away. The judgment stays human; the score only measures
-whether the delivery is sound.
-
-Then in the browser: pick your frameworks and harnesses, choose a task (or edit the
-prompt), and hit **▶ Run Benchmark**.
-
-> **First run tip:** the *Model per Framework* panel lists every model on your machine
-> (HF cache + MTPLX store) with a live compatibility verdict (**ready / tight /
-> too-large / unknown**) based on your current free RAM. Models a framework can't serve
-> are greyed out (e.g. MTPLX-only models for OMLX/MLX-VLM/MLX-Serve). Pick a model and
-> it's written straight into `config.json`.
 
 ---
 
@@ -220,10 +282,10 @@ for how it all fits together.
    │   ▸ next framework                            │    │
    │                    │                          │    │
    │                    ├──► qa.py (per finished   │    │
-   │                    │     cell: artifact       │    │
-   │                    │     delivered/complete/  │    │
-   │                    │     self-test/truncated  │    │
-   │                    │     → 0-100 + notes)     │    │
+   │                    │     cell: artifact        │    │
+   │                    │     delivered/complete/   │    │
+   │                    │     self-test/truncated   │    │
+   │                    │     → 0-100 + notes)      │    │
    │                    │                          │    │
    │   crash-safe JSONL ▸ runs/*.json ◄────────────┼────┘
    └──────┬────────────────────────────────────────┘
