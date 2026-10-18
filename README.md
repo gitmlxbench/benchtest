@@ -60,8 +60,8 @@ win on MTPLX and OMLX but a wash on MLX-VLM** — model choice alone doesn't
 decide speed; the framework does. Interactive charts: the [benchtest Results Space](https://huggingface.co/spaces/mlxbencher/benchtest-results)
 (dataset: [mlxbencher/benchtest-results](https://huggingface.co/datasets/mlxbencher/benchtest-results)).
 
-**Positioning**: raw-performance Apple-Silicon benchmarks exist ([Anubis OSS](https://github.com/Anubis-ops/anubis),
-[apple-silicon-llm-bench](https://github.com/john-rocky/apple-silicon-llm-bench));
+**Positioning**: raw-performance Apple-Silicon benchmarks exist
+([apple-silicon-llm-bench](https://github.com/john-rocky/apple-silicon-llm-bench));
 agent-harness leaderboards exist for cloud APIs. benchtest is the cross:
 **local serving frameworks × real agent harnesses × real build artifacts,
 on one Mac** — the "which framework should serve this model, and does the
