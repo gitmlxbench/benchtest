@@ -125,7 +125,7 @@ deterministic checks, raw JSON for anyone to re-analyze.
 
 V2's framework list (llama.cpp, Ollama, LM Studio, vLLM-for-Qwen-MTP) is
 the starting ballot, not the limit. **Voting is open** in the pinned
-**"Vote: shape V2"** GitHub Discussion:
+**[Vote: shape V2](https://github.com/gitmlxbench/benchtest/discussions)** GitHub Discussion:
 
 - 🗳️ **Vote by reaction**: each candidate framework / model family /
   harness is its own comment in the Discussion — add a 👍 to everything
@@ -282,10 +282,10 @@ for how it all fits together.
    │   ▸ next framework                            │    │
    │                    │                          │    │
    │                    ├──► qa.py (per finished   │    │
-   │                    │     cell: artifact       │    │
-   │                    │     delivered/completed  │    │
-   │                    │     self-test/truncated  │    │
-   │                    │     → 0-100 + notes)     │    │
+   │                    │     cell: artifact        │    │
+   │                    │     delivered/complete/   │    │
+   │                    │     self-test/truncated   │    │
+   │                    │     → 0-100 + notes)      │    │
    │                    │                          │    │
    │   crash-safe JSONL ▸ runs/*.json ◄────────────┼────┘
    └──────┬────────────────────────────────────────┘
