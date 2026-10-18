@@ -282,10 +282,10 @@ for how it all fits together.
    │   ▸ next framework                            │    │
    │                    │                          │    │
    │                    ├──► qa.py (per finished   │    │
-   │                    │     cell: artifact        │    │
-   │                    │     delivered/complete/   │    │
-   │                    │     self-test/truncated   │    │
-   │                    │     → 0-100 + notes)      │    │
+   │                    │     cell: artifact       │    │
+   │                    │     delivered/completed  │    │
+   │                    │     self-test/truncated  │    │
+   │                    │     → 0-100 + notes)     │    │
    │                    │                          │    │
    │   crash-safe JSONL ▸ runs/*.json ◄────────────┼────┘
    └──────┬────────────────────────────────────────┘
