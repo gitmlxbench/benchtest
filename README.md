@@ -54,6 +54,25 @@ Median decode speed, tokens/s, from the frozen datasets in [`results/`](results/
 | **MLX-Serve** | 52.2 / 49.6 | *does not fit (needs ~112.5 GB)* | — |
 | **MLX-VLM** | 35.8 / 34.9 | 38.7 / 39.0 | ~none — its runtime doesn't exploit the MTP build |
 
+**Qwen 3.8 27B — the reference set, per-task medians** (raw | agent,
+tok/s; 72/72 cells, all four frameworks):
+
+| Framework | agentconsole | codereview | tetris |
+|---|---|---|---|
+| **OMLX** | 53.0 / 55.0 | 43.5 / 50.8 | 55.1 / 55.7 |
+| **MLX-Serve** | 52.2 / 49.6 | 48.0 / 43.2 | 55.4 / 60.0 |
+| **MTPLX** | 52.1 / 47.9 | 43.5 / 46.3 | 52.2 / 46.6 |
+| **MLX-VLM** | 36.6 / 35.1 | 31.9 / 35.7 | 35.8 / 34.9 |
+
+**Flash-Next — same shape** (53/54 cells, 3 frameworks — MLX-Serve cannot
+load the 105 GB build on 128 GB):
+
+| Framework | agentconsole | codereview | tetris |
+|---|---|---|---|
+| **MTPLX** | 89.4 / 89.6 | 83.9 / 84.9 | 105.6 / 91.5 |
+| **OMLX** | 89.2 / 92.2 | 80.2 / 87.6 | 99.6 / 91.1 |
+| **MLX-VLM** | 37.9 / 38.5 | 39.9 / 40.9 | 38.7 / 39.8 |
+
 Reliability: 72/72 cells on the Qwen set; 53/54 on Flash-Next (one honest
 thinking-cap error row). The finding that matters: **Flash-Next is a ~1.7×
 win on MTPLX and OMLX but a wash on MLX-VLM** — model choice alone doesn't
@@ -280,10 +299,10 @@ for how it all fits together.
    │   ▸ next framework                            │    │
    │                    │                          │    │
    │                    ├──► qa.py (per finished   │    │
-   │                    │     cell: artifact        │    │
-   │                    │     delivered/complete/   │    │
-   │                    │     self-test/truncated   │    │
-   │                    │     → 0-100 + notes)      │    │
+   │                    │     cell: artifact       │    │
+   │                    │     delivered/complete/  │    │
+   │                    │     self-test/truncated  │    │
+   │                    │     → 0-100 + notes)     │    │
    │                    │                          │    │
    │   crash-safe JSONL ▸ runs/*.json ◄────────────┼────┘
    └──────┬────────────────────────────────────────┘
