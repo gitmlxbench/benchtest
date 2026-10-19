@@ -459,27 +459,6 @@ function showRowDetail(r) {
 }
 
 /* ---- comparison tab ---- */
-function fwStats(cells) {
-  const per = {};
-  for (const c of cells) {
-    const e = per[c.framework] = per[c.framework] ||
-      { model: c.model || '?', raw: [], agent: [], qa: [], done: 0, total: 0 };
-    e.total++;
-    if (c.status !== 'done') continue;
-    e.done++;
-    if (c.qa_score != null) e.qa.push(c.qa_score);
-    const isRaw = c.harness === 'Raw (api)' || c.harness === 'raw+';
-    if (isRaw && c.tps != null) e.raw.push(c.tps);
-    if (!isRaw && c.server_tgs != null) e.agent.push(c.server_tgs);
-  }
-  const med = a => a.length ? a.slice().sort((x, y) => x - y)[Math.floor(a.length / 2)] : null;
-  const r1 = d => d == null ? null : Math.round(d * 10) / 10;
-  return Object.fromEntries(Object.entries(per).map(([fw, e]) => [fw, {
-    model: e.model, done: e.done, total: e.total,
-    raw: r1(med(e.raw)), agent: r1(med(e.agent)), qa: med(e.qa)
-  }]));
-}
-
 async function renderComparison() {
   const runs = await api('/api/runs_history');   // refetch every visit
   const box = document.getElementById('cmpSummary');
@@ -529,22 +508,7 @@ async function renderComparison() {
     <p style="font-size:11px;color:var(--muted);margin-top:8px">
       Ranked by overall TPS; all rows share the same model for a fair comparison.
       TGS/PP prefer server-measured values when captured. Iterations = model calls
-      the harness needed.</p>
-    <h3 style="margin:18px 0 6px">Reference performance — per framework</h3>
-    <div style="overflow-x:auto">
-    <table><thead><tr><th>Framework</th><th>Model</th><th>Cells</th>
-      <th>Raw tok/s</th><th>Agent tok/s</th><th>QA</th></tr></thead>
-    <tbody>${Object.entries(fwStats(cells)).map(([fw, s]) => `
-      <tr><td style="color:var(--accent);font-weight:700">${esc(fw.toUpperCase())}</td>
-        <td style="font-family:var(--mono);font-size:11px">${esc(s.model)}</td>
-        <td>${s.done}/${s.total}</td>
-        <td style="color:var(--green);font-weight:700">${s.raw ?? '–'}</td>
-        <td>${s.agent ?? '–'}</td>
-        <td>${s.qa ?? '–'}</td></tr>`).join('')}</tbody></table></div>
-    <p style="font-size:11px;color:var(--muted);margin-top:6px">
-      Medians across every completed cell (all tasks, all harnesses) — the
-      same shape as the published reference tables. Agent column uses
-      server-measured TGS.</p>`;
+      the harness needed.</p>`;
 }
 
 /* ---- campaign (Run All) ---- */
