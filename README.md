@@ -1,319 +1,328 @@
-# benchtest
+# hart v2 — a fully agentic, multi-model, parallel build harness
 
-**Local LLM benchmarking for Apple Silicon.** Compare how the same model performs
-across the major local inference frameworks (OMLX, MTPLX, MLX-VLM, MLX-Serve) and
-across harnesses — **raw** (a single one-shot API call, no agent), **raw+**
-(raw with automatic continuation: when the reply hits the token cap, the
-streaming buffer is seamlessly continued so long artifacts finish), and
-the agent CLIs pi / opencode / aider / hart — with real throughput (TPS/TGS/PP), latency, and the actual artifact
-each cell produces, linked for your own review.
+hart takes a goal ("build a Tetris game in one HTML file"), talks to one or
+more LLMs — **local Apple-Silicon backends and/or frontier cloud models** — and
+runs it to a **validated, tested, documented deliverable** through a pipeline of
+**independent agents** that hand their work to each other **through files on
+disk**.
 
-Everything runs **locally** against models already on your machine. No cloud, no
-accounts, no telemetry. The backend is **pure Python standard library** — there is
-nothing to `pip install`.
+v2.0 is a complete rewrite of the v1 single-file sequential harness (preserved
+as [`hart_v1.py`](hart_v1.py)). It lifts v1's two non-goals — *no parallel /
+multi-agent concurrency* and *no cloud providers* — and makes every stage a
+separately-modeled agent. **Read [`DESIGN.md`](DESIGN.md) for the full
+architecture.**
 
----
-
-![benchtest dashboard — model picker, task chips, harness grid, live results](assets/benchmark-summary.png)
-
-## What it measures
-
-For every **framework × harness** cell on a chosen task, benchtest records:
-
-| Metric | Meaning |
-|--------|---------|
-| **TPS** | Overall throughput — completion tokens / total wall time |
-| **TGS** | Decode speed — tokens generated per second (server-measured where the framework exposes it) |
-| **PP** | Prefill speed — prompt tokens processed per second |
-| **Run time** | End-to-end wall time for the cell |
-| **Iter** | Model requests the harness made (agent loops, raw+ continuations; raw = 1) |
-| **Tokens** | Completion tokens produced |
-| **Output** | The actual artifact (HTML/text), saved and viewable |
-
-The dashboard shows a live activity feed, a per-cell streaming tail, a comparison
-chart (TPS/TGS/PP per framework across harnesses), and a "winning combo" (best usable
-result, soonest). Every completed run is saved to `runs/*.json` for later comparison.
-
-pi and opencode run in their structured JSON event modes (`--mode json` /
-`--format json`) — the same event stream their TUIs render — so the Live
-Harness Activity feed shows real agent narration: tool calls with target
-paths, thinking phases, chat replies, and per-step token counts. Their token totals are the
-model's exact output tokens (not word-count estimates), and sibling files an
-agent writes next to its HTML (e.g. `app.js`) are inlined into the collected
-artifact so the Artifacts links show what was actually built.
+Zero third-party dependencies — Python 3.9+ standard library only.
 
 ---
 
-## Headline results (Apple M5 Max, 128 GB)
+## What's new in v2
 
-Median decode speed, tokens/s, from the frozen datasets in [`results/`](results/)
-(3 tasks × up to 4 frameworks × 6 harnesses; agent rows use server-measured TGS):
-
-| Framework | Qwen3.8-27B raw / agent | Flash-Next raw / agent | Flash-Next gain |
-|---|---|---|---|
-| **MTPLX** | 51.9 / 46.6 | **89.4 / 84.9** | **~1.7×** |
-| **OMLX** | 53.0 / 51.0 | **88.8 / 87.6** | **~1.7×** |
-| **MLX-Serve** | 52.2 / 49.6 | *does not fit (needs ~112.5 GB)* | — |
-| **MLX-VLM** | 35.8 / 34.9 | 38.7 / 39.0 | ~none — its runtime doesn't exploit the MTP build |
-
-Reliability: 72/72 cells on the Qwen set; 53/54 on Flash-Next (one honest
-thinking-cap error row). The finding that matters: **Flash-Next is a ~1.7×
-win on MTPLX and OMLX but a wash on MLX-VLM** — model choice alone doesn't
-decide speed; the framework does. Interactive charts: the [benchtest Results Space](https://huggingface.co/spaces/mlxbencher/benchtest-results)
-(dataset: [mlxbencher/benchtest-results](https://huggingface.co/datasets/mlxbencher/benchtest-results)).
-
-**Positioning**: raw-performance Apple-Silicon benchmarks exist
-([apple-silicon-llm-bench](https://github.com/john-rocky/apple-silicon-llm-bench));
-agent-harness leaderboards exist for cloud APIs. benchtest is the cross:
-**local serving frameworks × real agent harnesses × real build artifacts,
-on one Mac** — the "which framework should serve this model, and does the
-harness change the outcome?" tool.
-
-**The task suite** — deliberately small, each task a different kind of work:
-`tetris` (interactive game logic), `codereview` (find the planted defects in a
-sample module), `markdown` (a CommonMark-subset compiler with spec tests),
-`agentconsole` (chat → tool-calling agent with skills + MCP deploy), plus
-**✏️ Custom prompt** for anything else — its template documents what models can
-and cannot reach in this environment. Every done cell also gets a
-**reliability QA score** (`qa.py`): deterministic artifact checks — delivered,
-substantial, structurally complete, self-test result, untruncated — with the
-breakdown one hover away. The judgment stays human; the score only measures
-whether the delivery is sound.
-
-Then in the browser: pick your frameworks and harnesses, choose a task (or edit the
-prompt), and hit **▶ Run Benchmark**.
-
-> **First run tip:** the *Model per Framework* panel lists every model on your machine
-> (HF cache + MTPLX store) with a live compatibility verdict (**ready / tight /
-> too-large / unknown**) based on your current free RAM. Models a framework can't serve
-> are greyed out (e.g. MTPLX-only models for OMLX/MLX-VLM/MLX-Serve). Pick a model and
-> it's written straight into `config.json`.
+| | v1 | v2 |
+|---|---|---|
+| Stages | 5 functions, one file | **7 agent modules** (`hart/agents/*.py`) |
+| Models | one backend per run | **per-stage model** — local builds, frontier plans/critiques/evaluates |
+| Backends | local OpenAI-compatible | **local + frontier cloud** (OpenAI-compatible *and* Anthropic) |
+| Handoff | in-memory state | **file-based**: each stage writes `.hart/stages/<n>-<stage>.json` |
+| Concurrency | sequential | **parallel** where inputs are independent |
+| Planning | single-shot | **planner ⇄ critic validation loop** |
+| Delivery | one validation pass | **final Evaluation agent + fix loop on any test failure** |
+| Filesystem | jailed scratch dir | **unrestricted by default** (any folder / git repo); `--sandbox` opt-in |
 
 ---
 
-## Roadmap
+## GUI — the hart console
 
-**V1 (current release) — the MLX-native frameworks, on purpose.** OMLX,
-MTPLX, MLX-VLM, and MLX-Serve × six harnesses (raw, raw+, pi, opencode,
-aider, hart) on the built-in task suite, with model discovery + RAM-fit
-validation, per-cell metrics, reliability QA, and frozen results for
-Qwen3.8-27B and Flash-Next. vLLM ships wired for standard HF repos with
-a reference model (Gemma) — the one framework where the Qwen MTP builds
-don't run yet.
+```bash
+pip install PySide6          # the GUI's only dependency
+python3 -m hartgui           # from the repo root
+```
 
-**V2 — widening the matrix.**
-- **Ollama and llama.cpp (llama-server)** as first-class frameworks
-- **vLLM with the Qwen MTP builds** once upstream vLLM supports them
-  (vote in the Discussions to show demand)
-- **A public cross-chip results set (M1–M5)** built from community runs —
-  see [Contributing results](#contributing-results--run-it-on-your-mac);
-  smaller-RAM machines stay first-class via fit validation
+A dark, pipeline-first console (think opencode), organized as **three
+pages in a left nav** so the first look is never overwhelming:
 
-**Future releases.** More agent harnesses as the ecosystem grows, and
-richer aggregate statistics across community submissions.
+- **⚙ Setup** — everything configurational: backends and per-stage models.
+- **▶ Run** — goal/prompt, run controls, the live pipeline bar, and the
+  live tail.
+- **📂 Results** — what each stage fed the next (the exact JSON), plus
+  artifacts on disk with reveal-in-Finder. The app switches here
+  automatically when a run finishes.
 
-## Contributing results — run it on your Mac
+- **Backends** panel — add any number of local (`http://127.0.0.1:PORT/v1`)
+  *and* cloud (OpenAI/Anthropic) backends; Discover probes `/v1/models`.
+- **Per-stage models** — use one model everywhere, or a different model
+  per stage: e.g. a frontier model for planning and evaluation, a local
+  Qwen for building. Planning, building, validation, evaluation, summary —
+  each is a dropdown.
+- **Planning** — a stage like any other: pick its model on the Setup page
+  (e.g. a frontier cloud model to plan, a local model to build). The plan's
+  steps stream into the live tail as they're produced.
+- **Pipeline bar** — connection → planning → building → validation →
+  evaluation → summary, each chip shows live state with a pulsing active
+  dot and per-stage elapsed time.
+- **Live tail** — timestamped, color-coded narration streaming from every
+  agent while it runs, with follow-mode: plan steps as they're produced,
+  every file the builder writes, and the final deliverables — **file paths
+  are clickable** (directories reveal in Finder, files open in the default
+  app). Artifacts land in the run's workdir; stage I/O in `.hart/stages/`.
+- **Dark / light theme** — one-click toggle in the header; the whole
+  palette (pipeline chips, tail colors, dialogs) switches.
+- **⏸ Pause at next stage** — click it while a run is on: the pause fires
+  **strictly between stages** (never interrupts the running stage). A
+  review dialog opens at the next stage boundary — and every boundary
+  after — showing the stage's exact output as editable JSON; an optional
+  **prompt note redirects the next stage** (for example: skip the
+  scoreboard, focus on game-over logic). Continue, or Abort. The edited
+  output is what the next stage actually receives.
 
-The published numbers are one machine; yours will differ, and that's the
-point. Run benchtest on your Mac (16 / 32 / 64 / 128 GB — the model
-picker only offers models that fit your RAM), then open a PR against
-[`community-results/`](community-results/) adding your run JSONs under a
-folder named `<github-user>-<machine>` (e.g. `jdoe-m4-16gb/`) with a
-short README (chip, RAM, models, frameworks). Match the manifest format
-in [`results/`](results/). The QA score keeps entries comparable:
-deterministic checks, raw JSON for anyone to re-analyze.
-
-## Shape V2 — vote on what we benchmark next
-
-V2's framework list (llama.cpp, Ollama, LM Studio, vLLM-for-Qwen-MTP) is
-the starting ballot, not the limit. **Voting is open** in the pinned
-**[Vote: shape V2](https://github.com/gitmlxbench/benchtest/discussions/1)** GitHub Discussion:
-
-- 🗳️ **Vote by reaction**: each candidate framework / model family /
-  harness is its own comment in the Discussion — add a 👍 to everything
-  you want benchmarked. One reaction per comment = one vote; the tally
-  is the comment's reaction count.
-- ✍️ **Write-ins welcome**: don't see your pick? Add it as a new comment
-  in the right category (framework / model / harness) and others can
-  vote on it too.
-- 📊 **Tallies steer the roadmap**: we pick up the top vote-getters for
-  each V2 milestone, in order, and edit the Roadmap above when a pick
-  moves into development.
-
-Anything with an OpenAI-compatible `/v1` endpoint and a CLI-launchable
-server is eligible; the bar for inclusion is that a community member can
-reproduce the numbers on their own machine.
-
-**Already have one framework (e.g. OMLX) and a model downloaded?**
-You're three commands from a run — no config editing needed on the
-default path: `./install.sh` → `python3 server.py` → open
-`http://localhost:7090`, pick your model in the dropdown, tick tasks,
-Run. (Editing `config.json` is only for custom start commands, ports, or
-model-set presets.)
+Everything the CLI can run, the GUI can — it *is* the harness (the agents
+run in-process; the GUI just drives them off the main thread).
 
 ## Quick start
 
 ```bash
-# 1. Get the code
-git clone https://github.com/gitmlxbench/benchtest.git
-cd benchtest
+# 1. point at a local backend (or a cloud model) in your config
+cp examples/hart.config.json ~/.hart/models.json     # then edit base_url / model / keys
 
-# 2. Check prerequisites + seed config.json
-./install.sh
+# 2. run a goal
+python3 hart.py "build a single-file HTML page with a heading, a working button, and an animated canvas"
 
-# 3. Start the server — no config editing needed on the default path
-#    (config.json is only for custom start commands, ports, or model-set presets)
-python3 server.py            # or: make run
-#    ➜ Open http://localhost:7090
+# 3. inspect the result
+cat REPORT.md
+ls .hart/stages/          # the file handoffs
 ```
 
-## Prerequisites
+`python3 -m hart "…"` is equivalent. On first run, if no config exists, hart
+seeds `~/.hart/models.json` from the built-in local presets (omlx / mtplx /
+mlxserve / mlxlm).
 
-- **Apple Silicon Mac** (M1 or later) with a recent **Python 3.10+** on your `PATH`.
-- The **framework CLIs** you want to benchmark (install only what you need):
+### Multi-model in one command
 
-| Framework | What it is | Install | Repo / site |
-|-----------|-----------|---------|-------------|
-| **OMLX** | macOS app + `omlx` CLI | download the app from the site | [omlx.ai](https://omlx.ai) · [github.com/jundot/omlx](https://github.com/jundot/omlx) |
-| **MTPLX** | MTP speculative decoding for Qwen3-Next | `brew tap youssofal/mtplx && brew install mtplx` | [github.com/youssofal/MTPLX](https://github.com/youssofal/MTPLX) |
-| **MLX-Serve** | OpenAI/Anthropic-compatible server | `brew tap ddalcu/mlx-serve && brew install mlx-serve` | [github.com/ddalcu/mlx-serve](https://github.com/ddalcu/mlx-serve) |
-| **MLX-VLM** | VLM / omni inference via `mlx_vlm` | `pip install mlx-vlm` (into the `python3` on your `PATH`) | [github.com/Blaizzy/mlx-vlm](https://github.com/Blaizzy/mlx-vlm) |
+```bash
+# local model builds, a frontier model plans, critiques, and evaluates
+python3 hart.py --framework local \
+    --model-for-stage planning=frontier \
+    --model-for-stage planning_critic=frontier \
+    --model-for-stage evaluation=frontier \
+    "build a REST todo API in Python with tests"
 
-- **Agent harness CLIs** (only for the agent rows) — community tools you install yourself:
-
-| Harness | Install | Repo / site |
-|---------|---------|-------------|
-| **pi** | `npm install -g @earendil-works/pi-coding-agent` | [github.com/earendil-works/pi](https://github.com/earendil-works/pi) |
-| **opencode** | `npm install -g opencode-ai` | [opencode.ai](https://opencode.ai) · [github.com/anomalyco/opencode](https://github.com/anomalyco/opencode) |
-| **aider** | `python3 -m pip install aider-chat` | [aider.chat](https://aider.chat) |
-| **hart** | *bundled in this repo — no install* | [`hart/`](hart/) |
-
-- **Models** — already on your machine (benchtest auto-discovers them):
-  - OMLX / MLX-VLM / MLX-Serve read from your Hugging Face cache
-    (`~/.cache/huggingface/hub`).
-  - MTPLX reads from its own store (`~/.mtplx/models`).
-
-  benchtest tags each model with the frameworks it can serve and tells you what fits in
-  your free RAM. If you're starting fresh, these are good models to download first (all
-  verified against the frameworks above):
-
-  | Model | Size | Good for | Link |
-  |-------|------|----------|------|
-  | Qwen3.8-27B-8bit | ~28 GB | OMLX / MLX-VLM / MLX-Serve (all-round starter) | [mlx-community/Qwen3.8-27B-8bit](https://huggingface.co/mlx-community/Qwen3.8-27B-8bit) |
-  | Qwen3.8-27B-MTP-8bit | ~0.5 GB | MTP draft — pairs with the 27B for speculative decoding, used for OMLX / MLX-VLM / MLX-Serve (all-round starter) | [mlx-community/Qwen3.8-27B-MTP-8bit](https://huggingface.co/mlx-community/Qwen3.8-27B-MTP-8bit) |
-  | Qwen3.8-27B-MTPLX-Optimized-Quality | ~28 GB | MTPLX (quality) | [Youssofal/Qwen3.8-27B-MTPLX-Optimized-Quality](https://huggingface.co/Youssofal/Qwen3.8-27B-MTPLX-Optimized-Quality) |
-  | Qwen3.8-27B-bf16 | ~51 GB | OMLX / MLX-VLM / MLX-Serve — **full-precision (bf16) reference** for quality validation | [mlx-community/Qwen3.8-27B-bf16](https://huggingface.co/mlx-community/Qwen3.8-27B-bf16) |
-
-  > **Quality validation (full-precision vs quantized):** to check whether a
-  > quantized build (e.g. the 8-bit starter) is losing quality, run the same task
-  > with the **bf16** model and compare throughput. Select `Qwen3.8-27B-bf16`
-  > per framework in the *Model per Framework* panel, run the task, then repeat
-  > with the 8-bit model and diff the TPS / run-time columns, then compare artifacts side by side via the Artifacts links.
-  > The bf16 model needs ~51 GB of free RAM, so stop other framework servers
-  > (e.g. OMLX) first. It is an HF-cache model, so it is offered for OMLX /
-  > MLX-VLM / MLX-Serve; MTPLX uses its own store and would need a separate
-  > MTPLX build of the same weights.
-
-  > Download any of these with `hf download <repo>` (or `huggingface-cli download <repo>`),
-  > or open the link and use the **Files** tab. MTPLX models are pulled into
-  > `~/.mtplx/models` by the `mtplx` CLI itself.
-
-`install.sh` checks all of the above and tells you exactly what's missing.
+# list what's configured
+python3 hart.py --list-models
+```
 
 ---
 
-## Ports
+## The pipeline
 
-| Port | Used by | Notes |
-|------|---------|-------|
-| **7090** | Dashboard + HTTP API | The web UI you open in the browser (`host`/`port` in `config.json`). |
-| **7005** | vLLM (5th framework) | Standard HF repos on the vLLM runtime — not MLX builds. Ships with `google/gemma-4-31B-it` as its reference model until vLLM supports the Qwen MTP builds. |
-| **7010** | Measurement proxy (internal) | Must be **free** when `route_via_proxy: true` — agent harnesses (pi, opencode, aider, hart) send their model calls here; the proxy forwards to the framework under test and records per-request TTFT / prompt / completion tokens (the agent rows' PP/TGS and the token-cap-truncation warning). If 7010 is taken, set `route_via_proxy: false` (agent cells then rely on server-side metrics only) or free the port. |
-| **7001–7004** | Framework servers | `omlx` 7001, `mtplx` 7002, `mlxvlm` (MLX-VLM) 7003, `mlxserve` (MLX-Serve) 7004 — per-framework `frameworks.<id>.port` in `config.json`; change freely as long as each is unique and free. |
+```
+connection → planning ⇄ critic → building → validation → evaluation ⇄ (fix loop) → summary
+```
 
-The dashboard also exposes `/api/relay/<port>/<path>` so pages it serves
-(e.g. an Agent Console artifact) can reach a framework that rejects
-browser-originated requests.
+Each arrow is a **file handoff** in `<workdir>/.hart/stages/`:
+
+| Stage | Agent | Default model | Writes |
+|---|---|---|---|
+| connection | `ConnectionAgent` | every configured model | `00-connection.json` |
+| planning | `PlannerAgent` | `stages.planning` | `01-plan.json` |
+| planning ⇄ critic | `CriticAgent` | `stages.planning_critic` | `01-critic.json` |
+| building | `BuilderAgent` | `stages.building` | `02-build.json` + artifacts |
+| validation | `ValidatorAgent` | `stages.validation` | `03-validation.json` |
+| evaluation | `EvaluatorAgent` | `stages.evaluation` | `04-evaluation.json` |
+| summary | `SummaryAgent` | `stages.summary` | `05-report.md` + `REPORT.md`/`README.md` |
+
+### The two validation loops
+
+- **Planning loop** — if a `planning_critic` model is configured (and differs
+  from the planner), the plan is sent to the critic. On `revise`, the feedback
+  goes back to the planner; repeat until `approve` or `budget.plan_critic_rounds`
+  is spent. This is "a plan from one model is validated by another."
+- **Evaluation fix loop** — the final `EvaluatorAgent` runs the project's real
+  test suite (auto-detected, or `--test-command`) plus a model review. **If any
+  test fails**, the Builder enters fix-mode with the exact failures, then
+  re-validates and re-evaluates, until green or `budget.eval_fix_rounds` is
+  spent. This is "if any test from one model or other failed, the loop starts to
+  fix the issue."
+
+### Parallelism
+
+Independent work runs concurrently on a bounded thread pool (`--parallel N`,
+default 4):
+
+- **connection** probes every configured model at once;
+- **building** runs plan steps with no unmet dependencies and no shared outputs
+  in parallel (the dependency graph is built from each step's `depends_on` and
+  `outputs`);
+- **validation / evaluation** run deterministic checks and independent model
+  reviews in parallel.
+
+---
 
 ## Configuration
 
-All machine-specific settings live in **`config.json`** (seeded from
-`config.example.json` on first run). The important knobs:
+Resolved in order: `--config PATH` → `./hart.config.json` → `~/.hart/models.json`.
+The v1 shape (`{"frameworks": {…}}`) is read transparently.
 
-| Key | What it does |
-|-----|--------------|
-| `host` / `port` | Where the web UI listens. Keep `host: 127.0.0.1` unless you know why you'd expose it. |
-| `frameworks.<id>.model` | The model id that framework serves / should serve. |
-| `frameworks.<id>.model_source` | Where the framework loads models from: `hf` (HF cache) or `mtplx` (`~/.mtplx/models`). Controls which models the picker offers for that framework. |
-| `frameworks.<id>.start_cmd` | The exact command to cold-start that framework's server. Supports `{model}`, `{repo}`, and `{model_path}` placeholders. |
-| `frameworks.<id>.port` | The port that framework's server listens on. |
-| `frameworks.<id>.ctx_tokens` | Configured context window (used for compatibility scoring + ctx-fill %). |
-| `frameworks.<id>.model_gb` | Approx weight size in GB (used for RAM-fit scoring). |
-| `route_via_proxy` | Route agent harnesses through the local measurement proxy (adds per-request PP/TGS/TTFT to agent rows). |
-| `pi_thinking` | pi thinking-level suffix for `--model` (e.g. `:high`). Empty = inherit server default. |
-| `hart_path` | Path to the `hart` agentic harness script. Defaults to the bundled `./hart/hart.py`. |
+```jsonc
+{
+  "models": {
+    "local":    {"provider":"openai","base_url":"http://127.0.0.1:7001/v1",
+                 "model":"…","api_key":"bench","ctx_tokens":262144},
+    "frontier": {"provider":"openai","base_url":"https://api.openai.com/v1",
+                 "model":"gpt-4o","api_key_env":"OPENAI_API_KEY"},
+    "claude":   {"provider":"anthropic","base_url":"https://api.anthropic.com",
+                 "model":"claude-sonnet-4-20250514","api_key_env":"ANTHROPIC_API_KEY"}
+  },
+  "default_model": "local",
+  "stages": { "planning":"local", "planning_critic":"frontier",
+              "building":"local", "evaluation":"frontier" },
+  "budget": { "max_steps":40, "per_call_max_tokens":16384,
+              "plan_critic_rounds":2, "eval_fix_rounds":3 },
+  "parallel": 4,
+  "sandbox": false,
+  "test_command": null
+}
+```
 
-See **[CONFIG.md](CONFIG.md)** for the full reference and **[ARCHITECTURE.md](ARCHITECTURE.md)**
-for how it all fits together.
-
----
-
-
-## How a run works
-
-1. For each selected **framework** (in order):
-   - Start its server (or reuse one already healthy on its port).
-   - Wait for its `/v1/models` endpoint to answer.
-   - For each selected **harness**, run the task and record the cell.
-   - Shut the server down (SIGTERM → SIGKILL) before moving on.
-2. Results stream to the dashboard live; the full run is saved to `runs/`.
-
-Frameworks are run **one at a time** so they never compete for RAM/GPU. You can
-**Stop** a run at any time — in-flight work is killed and partial results are kept.
-
-**Max cell run time.** A *cell* is one framework × harness × task
-combination. Every cell gets a hard wall-clock cap (default **2 h**, set in
-the dashboard's *Max cell run time (min)* field for dashboard runs, or the
-`cell_timeout_s` key in `config.json` for campaigns; clamped 1 min–6 h):
-if the harness is still working when the cap hits, it is stopped, any
-artifact it already wrote is kept, and the cell is recorded as an error row
-(`timeout after ...s`). This keeps one stuck cell from blocking a multi-day
-campaign, and the timeouts themselves are honest data — a slow framework
-burning the full budget is a real result. Agent harnesses budget their
-per-call limits to fit inside the cap (e.g. hart splits it into 2–3 calls).
-
+- `provider` is `openai` (any `/v1/chat/completions` endpoint) or `anthropic`
+  (`/v1/messages`).
+- `api_key_env` keeps secrets in the environment instead of the file.
+- A stage omitted from `stages` uses `default_model`.
 
 ---
 
-## Project layout
+## CLI
 
 ```
-benchtest/
-├── server.py            # the whole backend (stdlib only): HTTP API, orchestration, metrics
-├── discovery.py         # model discovery + RAM/context compatibility scoring
-├── index.html           # the dashboard (single-file frontend, no build step)
-├── config.example.json  # the config template (copied to config.json on first run)
-├── install.sh           # prerequisite check + config seeding
-├── Makefile             # setup / run / check / clean
-├── hart/                # the bundled `hart` agentic harness (hart.py + docs)
-├── runs/                # saved runs (gitignored)
-├── outputs/             # produced artifacts (gitignored)
-├── logs/                # bench.log + per-framework server logs (gitignored)
-├── work/                # scratch dirs for agent file artifacts (gitignored)
-└── harness-configs/     # per-run harness configs, regenerated each run (gitignored)
+python3 hart.py [task] [options]
+
+  --config PATH            config file
+  --framework NAME         use this model for every stage
+  --base-url URL           override the default model's endpoint
+  --model NAME             override the default model's id
+  --model-for-stage S=N    set one stage's model (repeatable)
+  --workdir PATH           project folder / git repo to work in
+  --resume                 resume an interrupted run in --workdir
+  --plan-file PATH         use this plan JSON instead of the Planning agent
+  --dry-run                plan only; print the plan and stop
+  --parallel N             max parallel model calls / steps
+  --sandbox                confine file/shell to the workdir
+  --test-command CMD       command the Evaluation agent runs as the test suite
+  --no-critic              disable the planning critic loop
+  --stage NAME             run ONLY this stage (its input files must exist)
+  --list-models            list configured models and exit
+  --verbose / --quiet      narration level
+  runs                     (positional) list past runs under --workdir's parent
 ```
 
 ---
 
-## Documentation
+## The GUI (native Mac client)
 
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** — full system diagram (Mermaid) + data flow.
-- **[CONFIG.md](CONFIG.md)** — every config key, explained.
-- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** — common failures and fixes.
+A native Mac GUI client (PySide6/Qt) that **is** the harness — it drives the
+same agents in-process. It adds what the CLI doesn't:
+
+- **Model discovery** — point at a framework URL, hit *Discover*, and hart lists
+  the models that endpoint serves. Add as many backends as you like.
+- **Per-stage model selection** — one model for every stage, or a different
+  model per stage (planning / building / validation / evaluation / summary):
+  e.g. a frontier cloud model plans and evaluates, a local Qwen builds.
+- **Live pipeline view** — per-stage status dots + a narration log.
+
+### Run it
+
+```bash
+# the GUI needs PySide6 (the harness core stays zero-dependency)
+python3 -m venv .venv-gui && source .venv-gui/bin/activate
+pip install PySide6
+python3 -m hartgui
+```
+
+### Use it
+
+1. **Backends** (left): fill in the form and click **Add / Update**:
+   - *Name* (e.g. `omlx`, `openai`), *URL* (e.g. `http://127.0.0.1:7001/v1` or
+     `https://api.openai.com/v1`), *Provider* (`openai`-compatible or `anthropic`),
+     optional *Model* id, and the **API key** — type it directly, or put the
+     *env var name* in **Key env** (e.g. `OPENAI_API_KEY`) to keep the secret out
+     of the file. Local backends need no key; cloud ones do.
+   - Click the backend in the list, then **Discover** to list its models
+     (OpenAI-compatible servers expose a model list; for Anthropic, set the
+     *Model* id — it has no list). Clicking a backend loads it into the form so
+     you can edit it.
+2. **Goal** (center): type the prompt.
+3. **Stage models**: *Use one model for every stage*, or set each stage's
+   model (planning included).
+4. **Run** — watch the pipeline bar and live tail, then read the result on
+   the Results page. **Stop** aborts in-flight calls; **⏸ Pause at next
+   stage** gates the run between stages for review.
+
+### Package as a `.app`
+
+```bash
+# Briefcase turns it into a native macOS app bundle + .dmg
+pip install briefcase
+briefcase create        # first time (generates the app spec)
+briefcase build macos
+# → dist/hart-gui/macos-arm64/hart-gui-<ver>.dmg
+```
+
+(PyInstaller also works: `pyinstaller --windowed --name hart hartgui/main.py`.)
 
 ---
 
-## Requirements & license
+## Filesystem policy (no boxing)
 
-- Python 3.10+ (standard library only — no dependencies).
-- MIT License. See [LICENSE](LICENSE).
+By default hart is **unrestricted**: `--workdir` can be any local folder or git
+repo, file actions accept relative *or* absolute paths, and `run_shell` has no
+command deny-list. This is a local tool on the owner's machine — **an
+unrestricted agent can modify anything the OS user can.** For untrusted tasks,
+use `--sandbox` (confines paths to the workdir + a conservative shell
+deny-list) or run under a throwaway user/container.
+
+---
+
+## Testing
+
+```bash
+python3 tests/test_pure.py          # 35 unit tests (protocol, actions, qa, config, plan, dep-graph)
+python3 tests/test_orchestrator.py  # 5 end-to-end tests against a mock model server
+python3 tests/test_gui_core.py      # GUI-core tests (discovery, planning, pipeline)
+# GUI offscreen tests need the GUI venv (PySide6):
+source .venv-gui/bin/activate && QT_QPA_PLATFORM=offscreen python3 tests/test_gui_offscreen.py
+```
+
+The integration tests run the **full pipeline** against a tiny OpenAI-compatible
+mock (`tests/mock_model.py`) and assert: artifacts created, the critic loop ran,
+independent steps built in parallel, the evaluation fix loop converged, and
+resume skips completed stages. No real model or network is needed.
+
+---
+
+## Layout
+
+```
+hart.py                  # thin entry point (keeps the historical path working)
+hart_v1.py               # the preserved v1 single-file harness (reference)
+hart/
+  config.py              # Model, ModelRegistry, config loading (local + cloud, v1 compat)
+  providers.py           # OpenAI + Anthropic streaming chat, shared SSE parser
+  protocol.py            # lenient JSON-action extraction
+  blackboard.py          # control state + file handoffs, atomic write, lock, resume
+  actions.py             # file + shell tools (sandbox-aware)
+  qa.py                  # deterministic QA gate + test-suite detection
+  context.py             # role prompts + repo inventory
+  orchestrator.py        # the pipeline, the two loops, parallelism, resume
+  cli.py                 # argparse + main()
+  agents/                # one module per stage
+    base.py  connection.py  planner.py  critic.py
+    builder.py  validator.py  evaluator.py  summary.py
+hartgui/                 # the native Mac GUI (PySide6; optional layer)
+  mainwindow.py          # the main window (backends, stages, plan compare, log)
+  workers.py             # QThread workers (pipeline + discovery, off the GUI thread)
+  best_of_n.py           # single-model planning + OMLX residency sweep
+  pipeline.py            # GUI pipeline (per-stage models, stage gates)
+  model_config.py        # backend + model discovery
+  main.py                # entry point (python3 -m hartgui)
+examples/hart.config.json
+tests/
+```
