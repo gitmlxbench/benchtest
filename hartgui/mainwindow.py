@@ -46,6 +46,7 @@ class MainWindow(QMainWindow):
         self._model_lookup = {}      # "backend/model" -> (Backend, model_id)
         self._worker = None
         self._discover_workers = []
+        self._last_states = {}         # stage → last state (theme repaint)
 
         self._build_ui()
         self._populate_model_combos()
@@ -90,6 +91,11 @@ class MainWindow(QMainWindow):
         row.setContentsMargins(16, 10, 16, 10)
         title = QLabel("⚡ hart")
         title.setProperty("h1", True)
+        self.header_stage = QLabel("")
+        self.header_stage.setStyleSheet(
+            f"color: {theme.FG}; font-weight: 700; background: {theme.PANEL2};"
+            f"border: 1px solid {theme.BORDER}; border-radius: 9px;"
+            f"padding: 3px 12px;")
         sub = QLabel("multi-agent build harness — plan · build · validate · evaluate")
         sub.setProperty("muted", True)
         self.header_status = QLabel("● ready")
@@ -99,6 +105,7 @@ class MainWindow(QMainWindow):
         self.theme_btn.setToolTip("Toggle dark / light theme")
         self.theme_btn.clicked.connect(self._on_toggle_theme)
         row.addWidget(title)
+        row.addWidget(self.header_stage)
         row.addSpacing(10)
         row.addWidget(sub)
         row.addStretch(1)
@@ -305,6 +312,67 @@ class MainWindow(QMainWindow):
         for c in self.stage_combos.values():
             c.setEnabled(not on)
 
+    # ── stage-gate review dialog ─────────────────────────────────────────
+    def _on_stage_gate(self, stage, output):
+        """Modal review between stages: shows the stage's exact output as
+        editable JSON. Continue passes the edit downstream; Abort kills the
+        run. The worker thread is blocked on a threading.Event meanwhile."""
+        import json as _json
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"⏸ {stage} — review before continuing")
+        dlg.resize(780, 560)
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(QLabel(
+            f"<b>{stage}</b> produced the output below — this is the exact "
+            f"input the next stage will receive."))
+        edit = QTextEdit()
+        try:
+            edit.setPlainText(_json.dumps(output, indent=2, ensure_ascii=False))
+        except (TypeError, ValueError):
+            edit.setPlainText(str(output))
+        edit.setFont(QFont("Menlo", 11))
+        lay.addWidget(edit, 1)
+        note = QTextEdit()
+        note.setMaximumHeight(80)
+        note.setPlaceholderText(
+            "Optional prompt note redirecting the next stage — e.g. 'skip "
+            "the scoreboard, focus on game-over logic' …")
+        lay.addWidget(QLabel("Prompt note for the next stage (optional):"))
+        lay.addWidget(note)
+        btns = QHBoxLayout()
+        cont = QPushButton("▶  Continue")
+        cont.setProperty("primary", True)
+        abort = QPushButton("■  Abort run")
+        abort.setProperty("danger", True)
+        btns.addStretch(1)
+        btns.addWidget(abort)
+        btns.addWidget(cont)
+        lay.addLayout(btns)
+        state = {"ok": False}
+
+        def _cont():
+            state["ok"] = True
+            txt = edit.toPlainText().strip()
+            edited = output
+            if txt:
+                try:
+                    edited = _json.loads(txt)
+                except ValueError:
+                    self._log(stage, "edited output was not valid JSON — "
+                                     "keeping the original")
+            self._worker.deliver_gate(edited,
+                                      note.toPlainText().strip() or None)
+            dlg.accept()
+
+        def _abort():
+            providers.ABORT["flag"] = True
+            self._worker.deliver_gate(output, None)
+            dlg.reject()
+
+        cont.clicked.connect(_cont)
+        abort.clicked.connect(_abort)
+        dlg.exec()
+
     # ── backend actions ──────────────────────────────────────────────────
     def _refresh_backend_list(self):
         current = self._selected_backend_name()
@@ -481,10 +549,26 @@ class MainWindow(QMainWindow):
             goal, self.workdir, stage_models, parallel=4,
             test_command=None, parent=self)
         self._worker.progress.connect(self._on_progress)
+        self._worker.stage_gate.connect(self._on_stage_gate)
         self._worker.finished_ok.connect(self._on_finished)
         self._worker.stopped.connect(self._on_stopped)
         self._worker.failed.connect(self._on_failed)
         self._worker.start()
+
+    def _apply_header_palette(self):
+        """Re-style the header for the current palette (dark/light) so the
+        logo and text stay visible after a theme toggle."""
+        p = theme.current()
+        self.header_stage.setStyleSheet(
+            f"color: {p['fg']}; font-weight: 700; background: {p['panel2']};"
+            f"border: 1px solid {p['border']}; border-radius: 9px;"
+            f"padding: 3px 12px;")
+        self.theme_btn.setText("☀ light" if theme.current() is theme.DARK
+                               else "☾ dark")
+        if hasattr(self, "_header_widget"):
+            self._header_widget.setStyleSheet(
+                f"background: {p['panel']};"
+                f"border-bottom: 1px solid {p['border']};")
 
     def _on_toggle_theme(self):
         from PySide6.QtWidgets import QApplication
